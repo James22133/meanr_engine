@@ -171,25 +171,68 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
-equity_curves = {}
-daily_returns = {}
-all_trades = []
+# --- Run Backtest ---
+print("Running backtest across all pairs...")
+config = BacktestConfig(
+    initial_capital=1_000_000,
+    target_volatility=0.10,
+    slippage_bps=2.0,
+    commission_bps=1.0,
+    stop_loss_std=2.0,
+    zscore_entry_threshold=2.0,
+    zscore_exit_threshold=0.1
+)
+
+# Codex's improved loop: run backtest per pair and aggregate
+pair_results = []
 
 for pair, signals in trade_signals.items():
     ticker_y, ticker_X = pair
-    # Align price series for the pair
-    pair_prices = data.loc[:, [ticker_y, ticker_X]].dropna()
-    pair_prices.columns = [ticker_y, ticker_X]
+    print(f"Backtesting pair: {ticker_y}-{ticker_X}")
+
+    # Use only the dates where both price series are available
+    prices = data.loc[:, [ticker_y, ticker_X]].dropna()
+    prices.columns = [ticker_y, ticker_X]
 
     backtest = PairsBacktest(config)
-    backtest.run_backtest(pair_prices, {pair: signals}, regime_series)
+    backtest.run_backtest(prices, {pair: signals}, regime_series)
+    metrics = backtest.get_performance_metrics()
+    pair_results.append({'pair': pair, 'metrics': metrics, 'backtest': backtest})
+    print(f"Metrics for {ticker_y}-{ticker_X}: {metrics}")
 
-    equity_curves[pair] = backtest.equity_curve
-    daily_returns[pair] = backtest.daily_returns
-all_trades.extend(backtest.trades)
 
-combined_equity_curve = pd.concat(equity_curves, axis=1).sum(axis=1)
-combined_daily_returns = combined_equity_curve.pct_change()
+def aggregate_results(results, config):
+    if not results:
+        backtest = PairsBacktest(config)
+        metrics = {}
+        return backtest, metrics
+
+    combined_returns = pd.Series(dtype=float)
+    all_trades = []
+    for r in results:
+        if combined_returns.empty:
+            combined_returns = r['backtest'].daily_returns
+        else:
+            combined_returns = combined_returns.add(r['backtest'].daily_returns, fill_value=0)
+        all_trades.extend(r['backtest'].trades)
+
+    equity_curve = (combined_returns + 1).cumprod() * config.initial_capital
+
+    backtest = PairsBacktest(config)
+    backtest.daily_returns = combined_returns
+    backtest.equity_curve = equity_curve
+    backtest.trades = all_trades
+
+    metrics = backtest.get_performance_metrics()
+    return backtest, metrics
+
+# Aggregate backtest results and assign for use later
+backtest, overall_metrics = aggregate_results(pair_results, config)
+combined_equity_curve = backtest.equity_curve
+combined_daily_returns = backtest.daily_returns
+all_trades = backtest.trades
+metrics = overall_metrics
+
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
