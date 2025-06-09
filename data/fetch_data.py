@@ -1,6 +1,11 @@
 import yfinance as yf
 import pandas as pd
 
+
+class DataFetchError(Exception):
+    """Raised when fetching data from the API fails."""
+    pass
+
 def fetch_etf_data(tickers, start_date, end_date):
     """
     Fetches historical adjusted close price data for a list of ETF tickers.
@@ -14,7 +19,13 @@ def fetch_etf_data(tickers, start_date, end_date):
         pandas.DataFrame: A DataFrame with adjusted close prices indexed by date.
     """
     # Download data with auto_adjust=True to get adjusted prices
-    data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True)
+    try:
+        data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True)
+    except Exception as e:
+        raise DataFetchError(f"Failed to download data: {e}")
+
+    if data.empty:
+        return pd.DataFrame()
     
     # If multiple tickers, data will have a MultiIndex columns
     if isinstance(tickers, list) and len(tickers) > 1:
