@@ -165,21 +165,32 @@ for pair, signals in trade_signals.items():
     print(f"Metrics for {ticker_y}-{ticker_X}: {metrics}")
 
 
-def aggregate_metrics(results):
+def aggregate_results(results, config):
     if not results:
-        return {}
-    keys = results[0]['metrics'].keys()
-    agg = {}
-    for key in keys:
-        if key in ['total_trades', 'winning_trades']:
-            agg[key] = sum(r['metrics'][key] for r in results)
+        backtest = PairsBacktest(config)
+        metrics = {}
+        return backtest, metrics
+
+    combined_returns = pd.Series(dtype=float)
+    all_trades = []
+    for r in results:
+        if combined_returns.empty:
+            combined_returns = r['backtest'].daily_returns
         else:
-            agg[key] = np.mean([r['metrics'][key] for r in results])
-    return agg
+            combined_returns = combined_returns.add(r['backtest'].daily_returns, fill_value=0)
+        all_trades.extend(r['backtest'].trades)
 
-overall_metrics = aggregate_metrics(pair_results)
+    equity_curve = (combined_returns + 1).cumprod() * config.initial_capital
 
-backtest = pair_results[0]['backtest'] if pair_results else PairsBacktest(config)
+    backtest = PairsBacktest(config)
+    backtest.daily_returns = combined_returns
+    backtest.equity_curve = equity_curve
+    backtest.trades = all_trades
+
+    metrics = backtest.get_performance_metrics()
+    return backtest, metrics
+
+backtest, overall_metrics = aggregate_results(pair_results, config)
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
