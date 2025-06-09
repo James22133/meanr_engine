@@ -148,14 +148,38 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
-backtest = PairsBacktest(config)
-# Pick the first available pair from trade_signals
-first_pair = next(iter(trade_signals.keys()))
-ticker_y, ticker_X = first_pair
-# Use only the dates where both price series are available
-prices = data.loc[:, [ticker_y, ticker_X]].dropna()
-prices.columns = [ticker_y, ticker_X]
-backtest.run_backtest(prices, trade_signals, regime_series)
+pair_results = []
+
+for pair, signals in trade_signals.items():
+    ticker_y, ticker_X = pair
+    print(f"Backtesting pair: {ticker_y}-{ticker_X}")
+
+    # Use only the dates where both price series are available
+    prices = data.loc[:, [ticker_y, ticker_X]].dropna()
+    prices.columns = [ticker_y, ticker_X]
+
+    backtest = PairsBacktest(config)
+    backtest.run_backtest(prices, {pair: signals}, regime_series)
+    metrics = backtest.get_performance_metrics()
+    pair_results.append({'pair': pair, 'metrics': metrics, 'backtest': backtest})
+    print(f"Metrics for {ticker_y}-{ticker_X}: {metrics}")
+
+
+def aggregate_metrics(results):
+    if not results:
+        return {}
+    keys = results[0]['metrics'].keys()
+    agg = {}
+    for key in keys:
+        if key in ['total_trades', 'winning_trades']:
+            agg[key] = sum(r['metrics'][key] for r in results)
+        else:
+            agg[key] = np.mean([r['metrics'][key] for r in results])
+    return agg
+
+overall_metrics = aggregate_metrics(pair_results)
+
+backtest = pair_results[0]['backtest'] if pair_results else PairsBacktest(config)
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
@@ -177,7 +201,7 @@ plot_trade_distribution([vars(t) for t in backtest.trades])
 plot_regime_performance(backtest.daily_returns, regime_series)
 
 # Plot performance metrics
-metrics = backtest.get_performance_metrics()
+metrics = overall_metrics
 plot_performance_metrics(metrics)
 
 # Save trade history
