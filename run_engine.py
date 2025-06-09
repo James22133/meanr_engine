@@ -148,14 +148,34 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
+equity_curves = []
+daily_returns = []
+all_trades = []
+
+for pair, signals in trade_signals.items():
+    ticker_y, ticker_X = pair
+    pair_prices = data.loc[:, [ticker_y, ticker_X]].dropna()
+    pair_prices.columns = [ticker_y, ticker_X]
+
+    backtest = PairsBacktest(config)
+    backtest.run_backtest(pair_prices, {pair: signals}, regime_series)
+
+
+    equity_curves.append(backtest.equity_curve)
+    daily_returns.append(backtest.daily_returns)
+    all_trades.extend(backtest.trades)
+
+if equity_curves:
+    combined_equity = pd.concat(equity_curves, axis=1).mean(axis=1)
+    combined_returns = pd.concat(daily_returns, axis=1).mean(axis=1)
+else:
+    combined_equity = pd.Series(dtype=float)
+    combined_returns = pd.Series(dtype=float)
+
 backtest = PairsBacktest(config)
-# Pick the first available pair from trade_signals
-first_pair = next(iter(trade_signals.keys()))
-ticker_y, ticker_X = first_pair
-# Use only the dates where both price series are available
-prices = data.loc[:, [ticker_y, ticker_X]].dropna()
-prices.columns = [ticker_y, ticker_X]
-backtest.run_backtest(prices, trade_signals, regime_series)
+backtest.equity_curve = combined_equity
+backtest.daily_returns = combined_returns
+backtest.trades = all_trades
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
