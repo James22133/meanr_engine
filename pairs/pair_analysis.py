@@ -70,7 +70,7 @@ def apply_kalman_filter(y, X):
     
     return states_pred, covs_pred
 
-def calculate_spread_and_zscore(y, X, states):
+def calculate_spread_and_zscore(y, X, states, rolling_window: int = 20):
     """
     Calculate the spread (y - beta*X) and its rolling Z-score.
 
@@ -94,7 +94,6 @@ def calculate_spread_and_zscore(y, X, states):
     spread = aligned_y - aligned_states_beta * aligned_X
     
     # Calculate rolling mean and standard deviation of the spread
-    rolling_window = 20
     rolling_mean = spread.rolling(window=rolling_window).mean()
     rolling_std = spread.rolling(window=rolling_window).std()
     

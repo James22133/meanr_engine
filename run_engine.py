@@ -79,12 +79,25 @@ for i in range(len(data.columns)):
         price_y_aligned = aligned_prices.iloc[:, 0]
         price_X_aligned = aligned_prices.iloc[:, 1]
 
+        # Check for cointegration and skip pair if not cointegrated
+        _, coint_p, _ = calculate_cointegration(price_y_aligned, price_X_aligned)
+        if coint_p is None or coint_p > 0.05:
+            print(
+                f"Skipping pair {asset1_ticker}-{asset2_ticker}: p-value {coint_p} exceeds threshold."
+            )
+            continue
+
         # Apply Kalman Filter
         # Note: Kalman filter needs input shaped (n_samples, n_features)
         kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
 
         # Calculate Spread and Z-score
-        z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states)
+        z_score = calculate_spread_and_zscore(
+            price_y_aligned,
+            price_X_aligned,
+            kf_states,
+            rolling_window=ZSCORE_WINDOW,
+        )
 
         # Store pair data
         pairs_data[(asset1_ticker, asset2_ticker)] = {
