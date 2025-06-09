@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Import modules
-from data.fetch_data import fetch_etf_data
+from data.fetch_data import fetch_etf_data, DataFetchError
+import sys
 from pairs.pair_analysis import calculate_cointegration, apply_kalman_filter, calculate_spread_and_zscore
 from regime.regime_detection import calculate_volatility, train_hmm, predict_regimes
 from backtest import (
@@ -31,8 +32,17 @@ STABLE_REGIME_INDEX = 0
 
 # --- Data Fetching ---
 print(f"Fetching data for {ETF_TICKERS}...")
-data = fetch_etf_data(ETF_TICKERS, START_DATE, END_DATE)
-data = data.dropna(axis=1, thresh=int(0.9 * len(data)))
+try:
+    data = fetch_etf_data(ETF_TICKERS, START_DATE, END_DATE)
+    data = data.dropna(axis=1, thresh=int(0.9 * len(data)))
+except DataFetchError as e:
+    print(f"Data fetch failed: {e}")
+    sys.exit(1)
+
+if data.empty:
+    print("No data returned from data source. Exiting.")
+    sys.exit(1)
+
 print("Data fetched successfully.")
 print("Available tickers:", data.columns.tolist())
 
