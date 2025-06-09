@@ -41,8 +41,8 @@ class PairsBacktest:
         self.config = config
         self.trades: List[Trade] = []
         self.positions: Dict[Tuple[str, str], Trade] = {}
-        self.equity_curve = pd.Series()
-        self.daily_returns = pd.Series()
+        self.equity_curve = pd.Series(dtype=float)
+        self.daily_returns = pd.Series(dtype=float)
         
     def calculate_position_size(self, prices: pd.DataFrame, pair: Tuple[str, str]) -> float:
         """Calculate volatility-scaled position size for a pair."""
