@@ -137,7 +137,7 @@ for pair, pair_data in pairs_data.items():
 print("Regime-filtered signals generated.")
 
 # --- Run Backtest ---
-print("Running backtest...")
+print("Running backtest across all pairs...")
 config = BacktestConfig(
     initial_capital=1_000_000,
     target_volatility=0.10,
@@ -148,40 +148,71 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
-backtest = PairsBacktest(config)
-# Pick the first available pair from trade_signals
-first_pair = next(iter(trade_signals.keys()))
-ticker_y, ticker_X = first_pair
-# Use only the dates where both price series are available
-prices = data.loc[:, [ticker_y, ticker_X]].dropna()
-prices.columns = [ticker_y, ticker_X]
-backtest.run_backtest(prices, trade_signals, regime_series)
+equity_curves = {}
+daily_returns = {}
+all_trades = []
+
+for pair, signals in trade_signals.items():
+    ticker_y, ticker_X = pair
+    # Align price series for the pair
+    pair_prices = data.loc[:, [ticker_y, ticker_X]].dropna()
+    pair_prices.columns = [ticker_y, ticker_X]
+
+    backtest = PairsBacktest(config)
+    backtest.run_backtest(pair_prices, {pair: signals}, regime_series)
+
+    equity_curves[pair] = backtest.equity_curve
+    daily_returns[pair] = backtest.daily_returns
+all_trades.extend(backtest.trades)
+
+combined_equity_curve = pd.concat(equity_curves, axis=1).sum(axis=1)
+combined_daily_returns = combined_equity_curve.pct_change()
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
 
-# Calculate drawdown
-cummax = backtest.equity_curve.cummax()
-drawdown = (backtest.equity_curve - cummax) / cummax
+# Calculate drawdown on combined equity
+cummax = combined_equity_curve.cummax()
+drawdown = (combined_equity_curve - cummax) / cummax
 
 # Plot equity curve and drawdown
-plot_equity_curve(backtest.equity_curve, drawdown)
+plot_equity_curve(combined_equity_curve, drawdown)
 
 # Plot monthly returns heatmap
-plot_monthly_returns(backtest.daily_returns)
+plot_monthly_returns(combined_daily_returns)
 
 # Plot trade distribution
-plot_trade_distribution([vars(t) for t in backtest.trades])
+plot_trade_distribution([vars(t) for t in all_trades])
 
 # Plot regime-specific performance
-plot_regime_performance(backtest.daily_returns, regime_series)
+plot_regime_performance(combined_daily_returns, regime_series)
 
-# Plot performance metrics
-metrics = backtest.get_performance_metrics()
+# Calculate performance metrics
+closed_trades = [t for t in all_trades if t.exit_date is not None]
+winning_trades = [t for t in closed_trades if t.pnl and t.pnl > 0]
+annualized_return = combined_daily_returns.mean() * 252
+annualized_vol = combined_daily_returns.std() * np.sqrt(252)
+sharpe_ratio = annualized_return / annualized_vol if annualized_vol != 0 else 0
+max_drawdown = drawdown.min()
+win_rate = len(winning_trades) / len(closed_trades) if closed_trades else 0
+holding_periods = [(t.exit_date - t.entry_date).days for t in closed_trades]
+avg_holding_period = np.mean(holding_periods) if holding_periods else 0
+metrics = {
+    'annualized_return': annualized_return,
+    'annualized_volatility': annualized_vol,
+    'sharpe_ratio': sharpe_ratio,
+    'max_drawdown': max_drawdown,
+    'win_rate': win_rate,
+    'avg_holding_period': avg_holding_period,
+    'total_trades': len(closed_trades),
+    'winning_trades': len(winning_trades)
+}
+
 plot_performance_metrics(metrics)
 
 # Save trade history
-backtest.save_trades_to_csv('trade_history.csv')
+trades_df = pd.DataFrame([vars(t) for t in all_trades])
+trades_df.to_csv('trade_history.csv', index=False)
 
 print("\nBacktest complete. Performance metrics:")
 for metric, value in metrics.items():
