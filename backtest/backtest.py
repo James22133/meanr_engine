@@ -251,9 +251,6 @@ class PairsBacktest:
         for pair, trade in self.positions.items():
             if trade.exit_date is not None:  # Skip already closed positions
                 continue
-                
-            # Calculate current P&L
-            current_pnl = self.calculate_trade_pnl(trade)
             
             # Check stop-loss
             if trade.direction == 'long':
