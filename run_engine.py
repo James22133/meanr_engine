@@ -20,8 +20,9 @@ from backtest import (
 ETF_TICKERS = ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF"]
 START_DATE = "2020-01-01"
 END_DATE = "2023-01-01"
-COINTEGRATION_WINDOW = 90 # days
-ZSCORE_WINDOW = 20 # days for rolling mean/std of spread
+COINTEGRATION_WINDOW = 90  # days
+COINTEGRATION_P_THRESHOLD = 0.05  # p-value threshold for cointegration test
+ZSCORE_WINDOW = 20  # days for rolling mean/std of spread
 HMM_N_COMPONENTS = 2 # Number of market regimes
 REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
 # Define the "stable" regime - this will need to be determined empirically
@@ -79,12 +80,24 @@ for i in range(len(data.columns)):
         price_y_aligned = aligned_prices.iloc[:, 0]
         price_X_aligned = aligned_prices.iloc[:, 1]
 
+        # Check cointegration on the most recent window
+        coint_y = price_y_aligned.tail(COINTEGRATION_WINDOW)
+        coint_x = price_X_aligned.tail(COINTEGRATION_WINDOW)
+        coint_t, coint_p, _ = calculate_cointegration(coint_y, coint_x)
+        if coint_p is None or coint_p > COINTEGRATION_P_THRESHOLD:
+            print(
+                f"Skipping pair {asset1_ticker}-{asset2_ticker}: cointegration p-value {coint_p} exceeds threshold."
+            )
+            continue
+
         # Apply Kalman Filter
         # Note: Kalman filter needs input shaped (n_samples, n_features)
         kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
 
         # Calculate Spread and Z-score
-        z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states)
+        z_score = calculate_spread_and_zscore(
+            price_y_aligned, price_X_aligned, kf_states, rolling_window=ZSCORE_WINDOW
+        )
 
         # Store pair data
         pairs_data[(asset1_ticker, asset2_ticker)] = {
