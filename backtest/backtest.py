@@ -41,8 +41,8 @@ class PairsBacktest:
         self.config = config
         self.trades: List[Trade] = []
         self.positions: Dict[Tuple[str, str], Trade] = {}
-        self.equity_curve = pd.Series()
-        self.daily_returns = pd.Series()
+        self.equity_curve = pd.Series(dtype=float)
+        self.daily_returns = pd.Series(dtype=float)
         
     def calculate_position_size(self, prices: pd.DataFrame, pair: Tuple[str, str]) -> float:
         """Calculate volatility-scaled position size for a pair."""
@@ -251,9 +251,6 @@ class PairsBacktest:
         for pair, trade in self.positions.items():
             if trade.exit_date is not None:  # Skip already closed positions
                 continue
-                
-            # Calculate current P&L
-            current_pnl = self.calculate_trade_pnl(trade)
             
             # Check stop-loss
             if trade.direction == 'long':

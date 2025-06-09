@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Import modules
-from data.fetch_data import fetch_etf_data
+from data.fetch_data import fetch_etf_data, DataFetchError
+import sys
 from pairs.pair_analysis import calculate_cointegration, apply_kalman_filter, calculate_spread_and_zscore
 from regime.regime_detection import calculate_volatility, train_hmm, predict_regimes
 from backtest import (
@@ -20,8 +21,9 @@ from backtest import (
 ETF_TICKERS = ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF"]
 START_DATE = "2020-01-01"
 END_DATE = "2023-01-01"
-COINTEGRATION_WINDOW = 90 # days
-ZSCORE_WINDOW = 20 # days for rolling mean/std of spread
+COINTEGRATION_WINDOW = 90  # days
+COINTEGRATION_P_THRESHOLD = 0.05  # p-value threshold for cointegration test
+ZSCORE_WINDOW = 20  # days for rolling mean/std of spread
 HMM_N_COMPONENTS = 2 # Number of market regimes
 REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
 # Define the "stable" regime - this will need to be determined empirically
@@ -30,8 +32,17 @@ STABLE_REGIME_INDEX = 0
 
 # --- Data Fetching ---
 print(f"Fetching data for {ETF_TICKERS}...")
-data = fetch_etf_data(ETF_TICKERS, START_DATE, END_DATE)
-data = data.dropna(axis=1, thresh=int(0.9 * len(data)))
+try:
+    data = fetch_etf_data(ETF_TICKERS, START_DATE, END_DATE)
+    data = data.dropna(axis=1, thresh=int(0.9 * len(data)))
+except DataFetchError as e:
+    print(f"Data fetch failed: {e}")
+    sys.exit(1)
+
+if data.empty:
+    print("No data returned from data source. Exiting.")
+    sys.exit(1)
+
 print("Data fetched successfully.")
 print("Available tickers:", data.columns.tolist())
 
@@ -79,12 +90,24 @@ for i in range(len(data.columns)):
         price_y_aligned = aligned_prices.iloc[:, 0]
         price_X_aligned = aligned_prices.iloc[:, 1]
 
+        # Check cointegration on the most recent window
+        coint_y = price_y_aligned.tail(COINTEGRATION_WINDOW)
+        coint_x = price_X_aligned.tail(COINTEGRATION_WINDOW)
+        coint_t, coint_p, _ = calculate_cointegration(coint_y, coint_x)
+        if coint_p is None or coint_p > COINTEGRATION_P_THRESHOLD:
+            print(
+                f"Skipping pair {asset1_ticker}-{asset2_ticker}: cointegration p-value {coint_p} exceeds threshold."
+            )
+            continue
+
         # Apply Kalman Filter
         # Note: Kalman filter needs input shaped (n_samples, n_features)
         kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
 
         # Calculate Spread and Z-score
-        z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states)
+        z_score = calculate_spread_and_zscore(
+            price_y_aligned, price_X_aligned, kf_states, rolling_window=ZSCORE_WINDOW
+        )
 
         # Store pair data
         pairs_data[(asset1_ticker, asset2_ticker)] = {
@@ -137,7 +160,7 @@ for pair, pair_data in pairs_data.items():
 print("Regime-filtered signals generated.")
 
 # --- Run Backtest ---
-print("Running backtest...")
+print("Running backtest across all pairs...")
 config = BacktestConfig(
     initial_capital=1_000_000,
     target_volatility=0.10,
@@ -148,6 +171,19 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
+# --- Run Backtest ---
+print("Running backtest across all pairs...")
+config = BacktestConfig(
+    initial_capital=1_000_000,
+    target_volatility=0.10,
+    slippage_bps=2.0,
+    commission_bps=1.0,
+    stop_loss_std=2.0,
+    zscore_entry_threshold=2.0,
+    zscore_exit_threshold=0.1
+)
+
+# Codex's improved loop: run backtest per pair and aggregate
 pair_results = []
 
 for pair, signals in trade_signals.items():
@@ -190,33 +226,59 @@ def aggregate_results(results, config):
     metrics = backtest.get_performance_metrics()
     return backtest, metrics
 
+# Aggregate backtest results and assign for use later
 backtest, overall_metrics = aggregate_results(pair_results, config)
+combined_equity_curve = backtest.equity_curve
+combined_daily_returns = backtest.daily_returns
+all_trades = backtest.trades
+metrics = overall_metrics
+
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
 
-# Calculate drawdown
-cummax = backtest.equity_curve.cummax()
-drawdown = (backtest.equity_curve - cummax) / cummax
+# Calculate drawdown on combined equity
+cummax = combined_equity_curve.cummax()
+drawdown = (combined_equity_curve - cummax) / cummax
 
 # Plot equity curve and drawdown
-plot_equity_curve(backtest.equity_curve, drawdown)
+plot_equity_curve(combined_equity_curve, drawdown)
 
 # Plot monthly returns heatmap
-plot_monthly_returns(backtest.daily_returns)
+plot_monthly_returns(combined_daily_returns)
 
 # Plot trade distribution
-plot_trade_distribution([vars(t) for t in backtest.trades])
+plot_trade_distribution([vars(t) for t in all_trades])
 
 # Plot regime-specific performance
-plot_regime_performance(backtest.daily_returns, regime_series)
+plot_regime_performance(combined_daily_returns, regime_series)
 
-# Plot performance metrics
-metrics = overall_metrics
+# Calculate performance metrics
+closed_trades = [t for t in all_trades if t.exit_date is not None]
+winning_trades = [t for t in closed_trades if t.pnl and t.pnl > 0]
+annualized_return = combined_daily_returns.mean() * 252
+annualized_vol = combined_daily_returns.std() * np.sqrt(252)
+sharpe_ratio = annualized_return / annualized_vol if annualized_vol != 0 else 0
+max_drawdown = drawdown.min()
+win_rate = len(winning_trades) / len(closed_trades) if closed_trades else 0
+holding_periods = [(t.exit_date - t.entry_date).days for t in closed_trades]
+avg_holding_period = np.mean(holding_periods) if holding_periods else 0
+metrics = {
+    'annualized_return': annualized_return,
+    'annualized_volatility': annualized_vol,
+    'sharpe_ratio': sharpe_ratio,
+    'max_drawdown': max_drawdown,
+    'win_rate': win_rate,
+    'avg_holding_period': avg_holding_period,
+    'total_trades': len(closed_trades),
+    'winning_trades': len(winning_trades)
+}
+
 plot_performance_metrics(metrics)
 
 # Save trade history
-backtest.save_trades_to_csv('trade_history.csv')
+trades_df = pd.DataFrame([vars(t) for t in all_trades])
+trades_df.to_csv('trade_history.csv', index=False)
 
 print("\nBacktest complete. Performance metrics:")
 for metric, value in metrics.items():
