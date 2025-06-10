@@ -74,9 +74,13 @@ class PairsBacktest:
             
         # Calculate raw P&L
         if trade.direction == 'long':
-            pnl = (trade.exit_price1 - trade.entry_price1) - (trade.exit_price2 - trade.entry_price2)
+            pnl = (trade.exit_price1 - trade.entry_price1) - (
+                trade.exit_price2 - trade.entry_price2
+            )
         else:
-            pnl = (trade.entry_price1 - trade.exit_price1) - (trade.entry_price2 - trade.exit_price2)
+            pnl = (trade.entry_price1 - trade.exit_price1) + (
+                trade.exit_price2 - trade.entry_price2
+            )
             
         # Apply position size
         pnl *= trade.size
