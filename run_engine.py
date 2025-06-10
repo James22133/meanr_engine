@@ -171,18 +171,6 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
-# --- Run Backtest ---
-print("Running backtest across all pairs...")
-config = BacktestConfig(
-    initial_capital=1_000_000,
-    target_volatility=0.10,
-    slippage_bps=2.0,
-    commission_bps=1.0,
-    stop_loss_std=2.0,
-    zscore_entry_threshold=2.0,
-    zscore_exit_threshold=0.1
-)
-
 # Codex's improved loop: run backtest per pair and aggregate
 pair_results = []
 
