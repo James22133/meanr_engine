@@ -116,9 +116,13 @@ class PairsBacktest:
                         self._open_position(pair, date, prices.loc[date], signal)
             
             # Update equity curve with realized and unrealized P&L
-            if date > dates[0]:
-                daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
-                self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl
+            idx = self.equity_curve.index.get_loc(date)
+            daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+            if idx > 0:
+                prev_date = self.equity_curve.index[idx - 1]
+                self.equity_curve.loc[date] = self.equity_curve.loc[prev_date] + daily_pnl
+            else:
+                self.equity_curve.loc[date] = self.config.initial_capital + daily_pnl
 
         # Calculate daily returns
         self.daily_returns = self.equity_curve.pct_change()
@@ -287,6 +291,10 @@ class PairsBacktest:
             self._close_position(pair, date, prices, reason)
             
         # Update daily P&L including realized gains from closed trades
-        if date > self.equity_curve.index[0]:
-            daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
-            self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl
+        idx = self.equity_curve.index.get_loc(date)
+        daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+        if idx > 0:
+            prev_date = self.equity_curve.index[idx - 1]
+            self.equity_curve.loc[date] = self.equity_curve.loc[prev_date] + daily_pnl
+        else:
+            self.equity_curve.loc[date] = self.config.initial_capital + daily_pnl
