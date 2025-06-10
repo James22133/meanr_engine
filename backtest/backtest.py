@@ -87,6 +87,7 @@ class PairsBacktest:
                     signals: Dict[Tuple[str, str], pd.DataFrame],
                     regimes: pd.Series) -> None:
         """Run the backtest simulation."""
+        self.prices = prices  # Store full price history for use in _open_position
         dates = prices.index
         self.equity_curve = pd.Series(index=dates, data=self.config.initial_capital)
         
@@ -110,8 +111,13 @@ class PairsBacktest:
                         self._open_position(pair, date, prices.loc[date], signal)
             
             # Update equity curve
-            if date > dates[0]:
-                self.equity_curve[date] = self.equity_curve[date - 1] + self._calculate_daily_pnl(date)
+            idx = self.equity_curve.index.get_loc(date)
+            daily_pnl = self._calculate_daily_pnl(date)
+            if idx == 0:
+                self.equity_curve[date] = self.config.initial_capital + daily_pnl
+            else:
+                prev_date = self.equity_curve.index[idx - 1]
+                self.equity_curve[date] = self.equity_curve[prev_date] + daily_pnl
         
         # Calculate daily returns
         self.daily_returns = self.equity_curve.pct_change()
@@ -138,7 +144,8 @@ class PairsBacktest:
                       signal: pd.Series) -> None:
         """Open a new position."""
         asset1, asset2 = pair
-        size = self.calculate_position_size(prices, pair)
+        # Use the full price history for position sizing
+        size = self.calculate_position_size(self.prices, pair)
         
         if size == 0:
             logger.warning(f"Skipping trade for {pair} due to zero position size")
@@ -266,7 +273,13 @@ class PairsBacktest:
         for pair, reason in positions_to_close:
             self._close_position(pair, date, prices, reason)
             
-        # Update daily P&L
-        if date > self.equity_curve.index[0]:
-            daily_pnl = self._calculate_daily_pnl(date)
-            self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl 
+        # Calculate daily P&L before updating the equity curve
+        daily_pnl = self._calculate_daily_pnl(date)
+        idx = self.equity_curve.index.get_loc(date)
+        if idx == 0:
+            # First date: initialize with initial capital + daily P&L
+            self.equity_curve[date] = self.config.initial_capital + daily_pnl
+        else:
+            # Get the previous date in the index
+            prev_date = self.equity_curve.index[idx - 1]
+            self.equity_curve[date] = self.equity_curve[prev_date] + daily_pnl

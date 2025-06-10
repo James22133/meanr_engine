@@ -22,7 +22,7 @@ ETF_TICKERS = ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "I
 START_DATE = "2020-01-01"
 END_DATE = "2023-01-01"
 COINTEGRATION_WINDOW = 90  # days
-COINTEGRATION_P_THRESHOLD = 0.05  # p-value threshold for cointegration test
+COINTEGRATION_PVALUE_THRESHOLD = 0.2  # or even 0.3 for testing
 ZSCORE_WINDOW = 20  # days for rolling mean/std of spread
 HMM_N_COMPONENTS = 2 # Number of market regimes
 REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
@@ -94,10 +94,8 @@ for i in range(len(data.columns)):
         coint_y = price_y_aligned.tail(COINTEGRATION_WINDOW)
         coint_x = price_X_aligned.tail(COINTEGRATION_WINDOW)
         coint_t, coint_p, _ = calculate_cointegration(coint_y, coint_x)
-        if coint_p is None or coint_p > COINTEGRATION_P_THRESHOLD:
-            print(
-                f"Skipping pair {asset1_ticker}-{asset2_ticker}: cointegration p-value {coint_p} exceeds threshold."
-            )
+        if coint_p > COINTEGRATION_PVALUE_THRESHOLD:
+            print(f"Skipping pair {asset1_ticker}-{asset2_ticker}: cointegration p-value {coint_p} exceeds threshold.")
             continue
 
         # Apply Kalman Filter
@@ -171,18 +169,6 @@ config = BacktestConfig(
     zscore_exit_threshold=0.1
 )
 
-# --- Run Backtest ---
-print("Running backtest across all pairs...")
-config = BacktestConfig(
-    initial_capital=1_000_000,
-    target_volatility=0.10,
-    slippage_bps=2.0,
-    commission_bps=1.0,
-    stop_loss_std=2.0,
-    zscore_entry_threshold=2.0,
-    zscore_exit_threshold=0.1
-)
-
 # Codex's improved loop: run backtest per pair and aggregate
 pair_results = []
 
@@ -195,6 +181,8 @@ for pair, signals in trade_signals.items():
     prices.columns = [ticker_y, ticker_X]
 
     backtest = PairsBacktest(config)
+    backtest.prices = prices
+    backtest.prices = prices
     backtest.run_backtest(prices, {pair: signals}, regime_series)
     metrics = backtest.get_performance_metrics()
     pair_results.append({'pair': pair, 'metrics': metrics, 'backtest': backtest})
@@ -216,7 +204,13 @@ def aggregate_results(results, config):
             combined_returns = combined_returns.add(r['backtest'].daily_returns, fill_value=0)
         all_trades.extend(r['backtest'].trades)
 
-    equity_curve = (combined_returns + 1).cumprod() * config.initial_capital
+    equity_curve = pd.Series(index=combined_returns.index, dtype=float)
+    for i, (date, daily_pnl) in enumerate(combined_returns.items()):
+        if i == 0:
+            equity_curve[date] = config.initial_capital + daily_pnl
+        else:
+            prev_date = combined_returns.index[i - 1]
+            equity_curve[date] = equity_curve[prev_date] + daily_pnl
 
     backtest = PairsBacktest(config)
     backtest.daily_returns = combined_returns
@@ -233,6 +227,9 @@ combined_daily_returns = backtest.daily_returns
 all_trades = backtest.trades
 metrics = overall_metrics
 
+print(f"Total trades: {len(all_trades)}")
+print(f"Nonzero daily returns: {(combined_daily_returns != 0).sum()}")
+print(f"Equity curve min/max: {combined_equity_curve.min()}, {combined_equity_curve.max()}")
 
 # --- Generate Performance Reports ---
 print("Generating performance reports...")
@@ -355,3 +352,17 @@ print("Next steps would be to build the full backtesting loop, risk management, 
 
 # --- TODO: Output Refinements (Future Step) ---
 # Implement signal heatmap, better performance reporting. 
+
+def plot_regime_performance(returns: pd.Series, regimes: pd.Series, title: str = "Regime-Specific Performance") -> None:
+    regime_returns = pd.DataFrame({'returns': returns, 'regime': regimes})
+    plt.figure(figsize=(12, 6))
+    for regime in regime_returns['regime'].unique():
+        mask = regime_returns['regime'] == regime
+        cumulative = (regime_returns.loc[mask, 'returns'] + 1).cumprod() - 1
+        plt.plot(regime_returns.loc[mask].index, cumulative, label=f'Regime {regime}')
+    plt.title(title)
+    plt.xlabel('Date')
+    plt.ylabel('Cumulative Return')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
