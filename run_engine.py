@@ -1,6 +1,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Import modules
 from data.fetch_data import fetch_etf_data, DataFetchError
@@ -31,23 +36,23 @@ REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
 STABLE_REGIME_INDEX = 0
 
 # --- Data Fetching ---
-print(f"Fetching data for {ETF_TICKERS}...")
+logger.info(f"Fetching data for {ETF_TICKERS}...")
 try:
     data = fetch_etf_data(ETF_TICKERS, START_DATE, END_DATE)
     data = data.dropna(axis=1, thresh=int(0.9 * len(data)))
 except DataFetchError as e:
-    print(f"Data fetch failed: {e}")
+    logger.error(f"Data fetch failed: {e}")
     sys.exit(1)
 
 if data.empty:
-    print("No data returned from data source. Exiting.")
+    logger.error("No data returned from data source. Exiting.")
     sys.exit(1)
 
-print("Data fetched successfully.")
-print("Available tickers:", data.columns.tolist())
+logger.info("Data fetched successfully.")
+logger.info("Available tickers: %s", data.columns.tolist())
 
 # --- Market Regime Detection ---
-print("Detecting market regimes...")
+logger.info("Detecting market regimes...")
 # Use the average volatility across all assets as a market-wide feature
 asset_volatilities = data.apply(calculate_volatility, axis=0, window=REGIME_VOLATILITY_WINDOW)
 market_volatility = asset_volatilities.mean(axis=1).dropna()
@@ -57,25 +62,25 @@ if not market_volatility.empty:
     regimes = predict_regimes(hmm_model, market_volatility)
     # Align regimes with the data index
     regime_series = pd.Series(regimes, index=market_volatility.index)
-    print("Market regimes detected.")
+    logger.info("Market regimes detected.")
 
     # Optional: Analyze predicted regimes and their characteristics (e.g., mean volatility in each regime)
     # mean_vol_per_regime = market_volatility.groupby(regime_series).mean()
     # print("Mean volatility per regime:", mean_vol_per_regime)
 
 else:
-    print("Not enough data to calculate market volatility and train HMM. Skipping regime detection.")
+    logger.warning("Not enough data to calculate market volatility and train HMM. Skipping regime detection.")
     regime_series = pd.Series(index=data.index, data=STABLE_REGIME_INDEX) # Assume stable if no HMM
 
 # --- Pairs Trading Analysis and Signal Generation ---
-print("Performing pairs analysis and generating signals...")
+logger.info("Performing pairs analysis and generating signals...")
 pairs_data = {}
 # Iterate through all unique pairs
 for i in range(len(data.columns)):
     for j in range(i + 1, len(data.columns)):
         asset1_ticker = data.columns[i]
         asset2_ticker = data.columns[j]
-        print(f"Analyzing pair: {asset1_ticker} and {asset2_ticker}")
+        logger.info(f"Analyzing pair: {asset1_ticker} and {asset2_ticker}")
 
         price_y = data[asset1_ticker]
         price_X = data[asset2_ticker]
@@ -83,7 +88,7 @@ for i in range(len(data.columns)):
         # Ensure price series are aligned and have enough data
         aligned_prices = pd.concat([price_y, price_X], axis=1).dropna()
         if len(aligned_prices) < COINTEGRATION_WINDOW + ZSCORE_WINDOW:
-            print(f"Skipping pair {asset1_ticker}-{asset2_ticker}: Not enough data.")
+            logger.info(f"Skipping pair {asset1_ticker}-{asset2_ticker}: Not enough data.")
             continue
 
         # Use aligned prices for subsequent calculations
@@ -95,7 +100,7 @@ for i in range(len(data.columns)):
         coint_x = price_X_aligned.tail(COINTEGRATION_WINDOW)
         coint_t, coint_p, _ = calculate_cointegration(coint_y, coint_x)
         if coint_p is None or coint_p > COINTEGRATION_P_THRESHOLD:
-            print(
+            logger.info(
                 f"Skipping pair {asset1_ticker}-{asset2_ticker}: cointegration p-value {coint_p} exceeds threshold."
             )
             continue
@@ -116,10 +121,10 @@ for i in range(len(data.columns)):
             # 'cointegration_p_value': coint_p # Optional: could add rolling cointegration here
         }
 
-print("Pairs analysis complete.")
+logger.info("Pairs analysis complete.")
 
 # --- Apply Regime Filter and Generate Trading Signals ---
-print("Applying regime filter and generating trading signals...")
+logger.info("Applying regime filter and generating trading signals...")
 trade_signals = {}
 
 for pair, pair_data in pairs_data.items():
@@ -157,10 +162,10 @@ for pair, pair_data in pairs_data.items():
 
     trade_signals[pair] = signals
 
-print("Regime-filtered signals generated.")
+logger.info("Regime-filtered signals generated.")
 
 # --- Run Backtest ---
-print("Running backtest across all pairs...")
+logger.info("Running backtest across all pairs...")
 config = BacktestConfig(
     initial_capital=1_000_000,
     target_volatility=0.10,
@@ -176,7 +181,7 @@ pair_results = []
 
 for pair, signals in trade_signals.items():
     ticker_y, ticker_X = pair
-    print(f"Backtesting pair: {ticker_y}-{ticker_X}")
+    logger.info(f"Backtesting pair: {ticker_y}-{ticker_X}")
 
     # Use only the dates where both price series are available
     prices = data.loc[:, [ticker_y, ticker_X]].dropna()
@@ -186,7 +191,7 @@ for pair, signals in trade_signals.items():
     backtest.run_backtest(prices, {pair: signals}, regime_series)
     metrics = backtest.get_performance_metrics()
     pair_results.append({'pair': pair, 'metrics': metrics, 'backtest': backtest})
-    print(f"Metrics for {ticker_y}-{ticker_X}: {metrics}")
+    logger.info(f"Metrics for {ticker_y}-{ticker_X}: {metrics}")
 
 
 def aggregate_results(results, config):
@@ -223,7 +228,7 @@ metrics = overall_metrics
 
 
 # --- Generate Performance Reports ---
-print("Generating performance reports...")
+logger.info("Generating performance reports...")
 
 # Calculate drawdown on combined equity
 cummax = combined_equity_curve.cummax()
@@ -268,17 +273,17 @@ plot_performance_metrics(metrics)
 trades_df = pd.DataFrame([vars(t) for t in all_trades])
 trades_df.to_csv('trade_history.csv', index=False)
 
-print("\nBacktest complete. Performance metrics:")
+logger.info("\nBacktest complete. Performance metrics:")
 for metric, value in metrics.items():
     if 'rate' in metric.lower() or 'drawdown' in metric.lower():
-        print(f"{metric}: {value*100:.1f}%")
+        logger.info(f"{metric}: {value*100:.1f}%")
     else:
-        print(f"{metric}: {value:.2f}")
+        logger.info(f"{metric}: {value:.2f}")
 
-print("\nTrade history saved to trade_history.csv")
+logger.info("\nTrade history saved to trade_history.csv")
 
 # --- Visualization/Initial Output ---
-print("Generating plots...")
+logger.info("Generating plots...")
 # Plot Z-score with entry/exit signals and regime overlay for a few pairs
 num_pairs_to_plot = min(3, len(trade_signals))
 
@@ -324,8 +329,8 @@ for i, (pair, signals) in enumerate(list(trade_signals.items())[:num_pairs_to_pl
     plt.grid(True)
     plt.show()
 
-print("Initial setup complete. Files created in meanr_engine directory.")
-print("Next steps would be to build the full backtesting loop, risk management, and performance metrics calculation.")
+logger.info("Initial setup complete. Files created in meanr_engine directory.")
+logger.info("Next steps would be to build the full backtesting loop, risk management, and performance metrics calculation.")
 
 # --- TODO: Backtesting Loop and Metrics (Future Step) ---
 # Need to implement the actual backtest loop to simulate trades,
