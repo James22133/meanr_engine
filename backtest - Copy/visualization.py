@@ -78,14 +78,13 @@ def plot_regime_performance(returns: pd.Series, regimes: pd.Series, title: str =
         'regime': regimes
     })
     
-    # Calculate cumulative returns by regime
-    regime_cumulative = regime_returns.groupby('regime')['returns'].cumsum()
-    
-    # Plot
     plt.figure(figsize=(12, 6))
-    for regime in regime_cumulative.index.unique():
-        regime_data = regime_cumulative[regime_cumulative.index == regime]
-        plt.plot(regime_data.index, regime_data, label=f'Regime {regime}')
+
+    # Plot cumulative returns for each unique regime separately
+    for regime in regime_returns['regime'].unique():
+        regime_data = regime_returns[regime_returns['regime'] == regime]
+        cumulative = regime_data['returns'].cumsum()
+        plt.plot(regime_data.index, cumulative, label=f'Regime {regime}')
     
     plt.title(title)
     plt.xlabel('Date')
