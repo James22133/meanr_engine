@@ -189,16 +189,24 @@ class PairsBacktest:
         trade.exit_reason = reason
         trade.pnl = self.calculate_trade_pnl(trade)
 
-        # Record realized P&L for the day and update equity
+        # Record realized P&L for the day
         if date in self.realized_pnl.index:
             self.realized_pnl.loc[date] += trade.pnl
         else:
             self.realized_pnl.loc[date] = trade.pnl
 
-        if date in self.equity_curve.index:
-            self.equity_curve.loc[date] += trade.pnl
+        # Immediately update equity curve to reflect realized gains
+        idx = self.equity_curve.index.get_loc(date) if date in self.equity_curve.index else None
+        unrealized_pnl = self._calculate_daily_pnl(date)
+        daily_total_pnl = self.realized_pnl.loc[date] + unrealized_pnl
+
+        if idx is not None and idx > 0:
+            prev_date = self.equity_curve.index[idx - 1]
+            base_equity = self.equity_curve.loc[prev_date]
         else:
-            self.equity_curve.loc[date] = trade.pnl
+            base_equity = self.config.initial_capital
+
+        self.equity_curve.loc[date] = base_equity + daily_total_pnl
 
         del self.positions[pair]
         logger.info(
