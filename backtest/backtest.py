@@ -117,7 +117,7 @@ class PairsBacktest:
             
             # Update equity curve with realized and unrealized P&L
             idx = self.equity_curve.index.get_loc(date)
-            daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+            daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(prices.loc[date])
             if idx > 0:
                 prev_date = self.equity_curve.index[idx - 1]
                 self.equity_curve.loc[date] = self.equity_curve.loc[prev_date] + daily_pnl
@@ -197,7 +197,7 @@ class PairsBacktest:
 
         # Immediately update equity curve to reflect realized gains
         idx = self.equity_curve.index.get_loc(date) if date in self.equity_curve.index else None
-        unrealized_pnl = self._calculate_daily_pnl(date)
+        unrealized_pnl = self._calculate_daily_pnl(prices)
         daily_total_pnl = self.realized_pnl.loc[date] + unrealized_pnl
 
         if idx is not None and idx > 0:
@@ -213,13 +213,29 @@ class PairsBacktest:
             f"Closed position in {pair} at {date} with P&L: ${trade.pnl:,.2f}"
         )
     
-    def _calculate_daily_pnl(self, date: datetime) -> float:
-        """Calculate P&L for the current day."""
+    def _calculate_daily_pnl(self, prices: pd.Series) -> float:
+        """Calculate unrealized P&L for the current day based on prices."""
         daily_pnl = 0.0
         for trade in self.positions.values():
-            if trade.exit_date is None:  # Position still open
-                current_pnl = self.calculate_trade_pnl(trade)
-                daily_pnl += current_pnl
+            if trade.exit_date is not None:
+                continue
+
+            current_price1 = prices[trade.asset1]
+            current_price2 = prices[trade.asset2]
+
+            if trade.direction == 'long':
+                pnl = (
+                    (current_price1 - trade.entry_price1)
+                    - (current_price2 - trade.entry_price2)
+                )
+            else:
+                pnl = (
+                    (trade.entry_price1 - current_price1)
+                    + (current_price2 - trade.entry_price2)
+                )
+
+            daily_pnl += pnl * trade.size
+
         return daily_pnl
     
     def get_performance_metrics(self) -> Dict[str, float]:
@@ -300,7 +316,7 @@ class PairsBacktest:
             
         # Update daily P&L including realized gains from closed trades
         idx = self.equity_curve.index.get_loc(date)
-        daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+        daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(prices)
         if idx > 0:
             prev_date = self.equity_curve.index[idx - 1]
             self.equity_curve.loc[date] = self.equity_curve.loc[prev_date] + daily_pnl
