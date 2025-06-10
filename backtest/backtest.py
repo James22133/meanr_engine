@@ -45,24 +45,34 @@ class PairsBacktest:
         self.daily_returns = pd.Series(dtype=float)
         self.realized_pnl = pd.Series(dtype=float)
         
-    def calculate_position_size(self, prices: pd.DataFrame, pair: Tuple[str, str]) -> float:
-        """Calculate volatility-scaled position size for a pair."""
+    def calculate_position_size(
+        self,
+        prices: pd.DataFrame,
+        pair: Tuple[str, str],
+        date: datetime,
+    ) -> float:
+        """Calculate volatility-scaled position size for a pair up to a given date."""
         asset1, asset2 = pair
         returns1 = prices[asset1].pct_change()
         returns2 = prices[asset2].pct_change()
-        
+
         # Calculate pair volatility (20-day rolling)
         pair_vol = (returns1 - returns2).rolling(20).std() * np.sqrt(252)
-        current_vol = pair_vol.iloc[-1]
+
+        if date not in pair_vol.index:
+            logger.warning(f"Date {date} not found for pair {pair}")
+            return 0
+
+        current_vol = pair_vol.loc[:date].iloc[-1]
 
         if pd.isna(current_vol):
-            logger.warning(f"Volatility is NaN for pair {pair}")
+            logger.warning(f"Volatility is NaN for pair {pair} on {date}")
             return 0
 
         if current_vol == 0:
-            logger.warning(f"Zero volatility detected for pair {pair}")
+            logger.warning(f"Zero volatility detected for pair {pair} on {date}")
             return 0
-            
+
         # Scale position size to target volatility
         position_size = (self.config.initial_capital * self.config.target_volatility) / current_vol
         return position_size / 2  # Divide by 2 for dollar-neutral (equal long/short)
@@ -113,7 +123,7 @@ class PairsBacktest:
                 else:
                     # Check for entry conditions
                     if self._should_enter_position(pair, signal, regimes.loc[date]):
-                        self._open_position(pair, date, prices.loc[date], signal)
+                        self._open_position(pair, date, prices, signal)
             
             # Update equity curve with realized and unrealized P&L
             idx = self.equity_curve.index.get_loc(date)
@@ -142,14 +152,16 @@ class PairsBacktest:
         """Check if we should exit an existing position."""
         return signal['exit']
     
-    def _open_position(self, 
-                      pair: Tuple[str, str],
-                      date: datetime,
-                      prices: pd.Series,
-                      signal: pd.Series) -> None:
+    def _open_position(
+        self,
+        pair: Tuple[str, str],
+        date: datetime,
+        prices: pd.DataFrame,
+        signal: pd.Series,
+    ) -> None:
         """Open a new position."""
         asset1, asset2 = pair
-        size = self.calculate_position_size(prices, pair)
+        size = self.calculate_position_size(prices, pair, date)
         
         if size == 0:
             logger.warning(f"Skipping trade for {pair} due to zero position size")
@@ -163,8 +175,8 @@ class PairsBacktest:
             asset1=asset1,
             asset2=asset2,
             direction=direction,
-            entry_price1=prices[asset1],
-            entry_price2=prices[asset2],
+            entry_price1=prices.loc[date, asset1],
+            entry_price2=prices.loc[date, asset2],
             exit_price1=None,
             exit_price2=None,
             size=size,
