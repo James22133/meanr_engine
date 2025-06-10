@@ -43,6 +43,7 @@ class PairsBacktest:
         self.positions: Dict[Tuple[str, str], Trade] = {}
         self.equity_curve = pd.Series(dtype=float)
         self.daily_returns = pd.Series(dtype=float)
+        self.realized_pnl = pd.Series(dtype=float)
         
     def calculate_position_size(self, prices: pd.DataFrame, pair: Tuple[str, str]) -> float:
         """Calculate volatility-scaled position size for a pair."""
@@ -89,7 +90,8 @@ class PairsBacktest:
         """Run the backtest simulation."""
         dates = prices.index
         self.equity_curve = pd.Series(index=dates, data=self.config.initial_capital)
-        
+        self.realized_pnl = pd.Series(index=dates, data=0.0)
+
         for date in dates:
             # Update existing positions
             self._update_positions(date, prices.loc[date])
@@ -109,10 +111,11 @@ class PairsBacktest:
                     if self._should_enter_position(pair, signal, regimes.loc[date]):
                         self._open_position(pair, date, prices.loc[date], signal)
             
-            # Update equity curve
+            # Update equity curve with realized and unrealized P&L
             if date > dates[0]:
-                self.equity_curve[date] = self.equity_curve[date - 1] + self._calculate_daily_pnl(date)
-        
+                daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+                self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl
+
         # Calculate daily returns
         self.daily_returns = self.equity_curve.pct_change()
     
@@ -177,9 +180,22 @@ class PairsBacktest:
         trade.exit_price2 = prices[trade.asset2]
         trade.exit_reason = reason
         trade.pnl = self.calculate_trade_pnl(trade)
-        
+
+        # Record realized P&L for the day and update equity
+        if date in self.realized_pnl.index:
+            self.realized_pnl.loc[date] += trade.pnl
+        else:
+            self.realized_pnl.loc[date] = trade.pnl
+
+        if date in self.equity_curve.index:
+            self.equity_curve.loc[date] += trade.pnl
+        else:
+            self.equity_curve.loc[date] = trade.pnl
+
         del self.positions[pair]
-        logger.info(f"Closed position in {pair} at {date} with P&L: ${trade.pnl:,.2f}")
+        logger.info(
+            f"Closed position in {pair} at {date} with P&L: ${trade.pnl:,.2f}"
+        )
     
     def _calculate_daily_pnl(self, date: datetime) -> float:
         """Calculate P&L for the current day."""
@@ -266,7 +282,7 @@ class PairsBacktest:
         for pair, reason in positions_to_close:
             self._close_position(pair, date, prices, reason)
             
-        # Update daily P&L
+        # Update daily P&L including realized gains from closed trades
         if date > self.equity_curve.index[0]:
-            daily_pnl = self._calculate_daily_pnl(date)
-            self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl 
+            daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+            self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl
