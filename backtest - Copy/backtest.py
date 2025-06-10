@@ -53,7 +53,11 @@ class PairsBacktest:
         # Calculate pair volatility (20-day rolling)
         pair_vol = (returns1 - returns2).rolling(20).std() * np.sqrt(252)
         current_vol = pair_vol.iloc[-1]
-        
+
+        if pd.isna(current_vol):
+            logger.warning(f"Volatility is NaN for pair {pair}")
+            return 0
+
         if current_vol == 0:
             logger.warning(f"Zero volatility detected for pair {pair}")
             return 0
