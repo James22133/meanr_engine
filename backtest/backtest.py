@@ -115,10 +115,7 @@ class PairsBacktest:
                     if self._should_enter_position(pair, signal, regimes.loc[date]):
                         self._open_position(pair, date, prices.loc[date], signal)
             
-            # Update equity curve with realized and unrealized P&L
-            if date > dates[0]:
-                daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
-                self.equity_curve[date] = self.equity_curve[date - 1] + daily_pnl
+
 
         # Calculate daily returns
         self.daily_returns = self.equity_curve.pct_change()
