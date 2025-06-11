@@ -7,6 +7,7 @@ A quantitative trading engine that implements a pairs trading strategy using mea
 - ETF data fetching and preprocessing
 - Cointegration analysis for pair selection
 - Kalman filter for dynamic spread modeling
+- Composite scoring of pairs using cointegration, ADF, Hurst and Z-score volatility
 - Hidden Markov Model for regime detection
 - Backtesting engine with:
   - Position sizing based on volatility targeting
@@ -79,8 +80,29 @@ Key parameters can be adjusted in `run_engine.py`:
 - Date range
 - Cointegration window
 - Z-score thresholds
+- TOP_N_PAIRS (number of highest scoring pairs to trade)
 - Regime detection parameters
 - Backtest configuration
+
+## Pair Scoring
+
+Pairs are ranked using four metrics:
+
+- Rolling cointegration p-value
+- Rolling Hurst exponent
+- Rolling ADF test p-value
+- Z-score volatility
+
+Each metric is min-max normalized across all candidate pairs. The final score is
+`1 - mean(normalized metrics)` so that lower p-values or lower Hurst values
+(indicating stronger mean reversion) lead to higher scores. The `TOP_N_PAIRS`
+parameter defines how many of the highest scoring pairs are kept for signal
+generation and backtesting. Increase this value in `run_engine.py` to consider
+more pairs or reduce it to focus on fewer.
+
+These relaxed statistical metrics are now used for scoring rather than strict
+threshold-based filtering, allowing borderline pairs to be considered while
+still prioritizing the strongest candidates.
 
 ## License
 
