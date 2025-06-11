@@ -289,12 +289,19 @@ combined_daily_returns = backtest.daily_returns
 all_trades = backtest.trades
 metrics = overall_metrics
 
-print(f"Total trades: {len(all_trades)}")
-print(f"Closed trades: {len([t for t in all_trades if t.exit_date is not None])}")
-print(f"Nonzero daily returns: {(combined_daily_returns != 0).sum()}")
-print(f"Equity curve min/max: {combined_equity_curve.min()}, {combined_equity_curve.max()}")
-print(combined_equity_curve.head(10))
-print(combined_daily_returns.head(10))
+logger.info("Total trades: %s", len(all_trades))
+logger.info(
+    "Closed trades: %s",
+    len([t for t in all_trades if t.exit_date is not None]),
+)
+logger.info("Nonzero daily returns: %s", (combined_daily_returns != 0).sum())
+logger.info(
+    "Equity curve min/max: %s, %s",
+    combined_equity_curve.min(),
+    combined_equity_curve.max(),
+)
+logger.debug(combined_equity_curve.head(10))
+logger.debug(combined_daily_returns.head(10))
 
 # --- Generate Performance Reports ---
 logger.info("Generating performance reports...")
