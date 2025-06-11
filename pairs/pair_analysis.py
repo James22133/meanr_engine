@@ -168,18 +168,18 @@ def hurst_exponent(ts, min_lag=2, max_lag=20):
 
 # --- Enhancement: ADF Test Utility
 
-def adf_pvalue(ts):
+def adf_pvalue(series):
     """
     Return the p-value from the Augmented Dickey-Fuller test.
     """
     try:
-        return ts.adfuller(ts.dropna())[1]
+        return ts.adfuller(series.dropna())[1]
     except Exception:
         return np.nan 
 
 # --- Enhancement: Rolling Hurst and Rolling ADF
 # Add rolling Hurst and rolling ADF calculation utilities for dynamic filtering.
-def rolling_hurst(ts, window=60):
+def rolling_hurst(series, window=60):
     """
     Compute rolling Hurst exponent for a time series.
     Returns a Series aligned to the right edge of each window.
@@ -189,9 +189,9 @@ def rolling_hurst(ts, window=60):
         tau = [np.std(np.subtract(x[lag:], x[:-lag])) for lag in lags]
         poly = np.polyfit(np.log(lags), np.log(tau), 1)
         return poly[0] * 2.0
-    return ts.rolling(window=window, min_periods=window).apply(hurst_win, raw=True)
+    return series.rolling(window=window, min_periods=window).apply(hurst_win, raw=True)
 
-def rolling_adf(ts, window=60):
+def rolling_adf(series, window=60):
     """
     Compute rolling ADF p-value for a time series.
     Returns a Series aligned to the right edge of each window.
@@ -202,4 +202,4 @@ def rolling_adf(ts, window=60):
             return tsastat.adfuller(x)[1]
         except Exception:
             return np.nan
-    return ts.rolling(window=window, min_periods=window).apply(adf_win, raw=True)
+    return series.rolling(window=window, min_periods=window).apply(adf_win, raw=True)
