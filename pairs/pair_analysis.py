@@ -128,3 +128,78 @@ def calculate_spread_and_zscore(y, X, states, rolling_window=20):
 
 # Example: if you expect prices to be a DataFrame
 # dates = prices.index 
+
+# --- Enhancement: Rolling Cointegration, Hurst, and ADF Filters
+
+def rolling_cointegration(series1, series2, window=60):
+    """
+    Compute rolling Engle-Granger cointegration p-value for each window.
+    Returns a Series of p-values aligned to the right edge of each window.
+    """
+    pvals = []
+    idxs = []
+    s1 = series1.values
+    s2 = series2.values
+    index = series1.index
+    for i in range(window - 1, len(series1)):
+        window_s1 = s1[i - window + 1:i + 1]
+        window_s2 = s2[i - window + 1:i + 1]
+        if np.isnan(window_s1).any() or np.isnan(window_s2).any():
+            pvals.append(np.nan)
+        else:
+            try:
+                pval = ts.coint(window_s1, window_s2)[1]
+            except Exception:
+                pval = np.nan
+            pvals.append(pval)
+        idxs.append(index[i])
+    return pd.Series(pvals, index=idxs)
+
+# --- Enhancement: Hurst Exponent
+
+def hurst_exponent(ts, min_lag=2, max_lag=20):
+    """
+    Estimate the Hurst exponent of a time series.
+    """
+    lags = range(min_lag, max_lag)
+    tau = [np.std(np.subtract(ts[lag:], ts[:-lag])) for lag in lags]
+    poly = np.polyfit(np.log(lags), np.log(tau), 1)
+    return poly[0] * 2.0
+
+# --- Enhancement: ADF Test Utility
+
+def adf_pvalue(ts):
+    """
+    Return the p-value from the Augmented Dickey-Fuller test.
+    """
+    try:
+        return ts.adfuller(ts.dropna())[1]
+    except Exception:
+        return np.nan 
+
+# --- Enhancement: Rolling Hurst and Rolling ADF
+# Add rolling Hurst and rolling ADF calculation utilities for dynamic filtering.
+def rolling_hurst(ts, window=60):
+    """
+    Compute rolling Hurst exponent for a time series.
+    Returns a Series aligned to the right edge of each window.
+    """
+    def hurst_win(x):
+        lags = range(2, 20)
+        tau = [np.std(np.subtract(x[lag:], x[:-lag])) for lag in lags]
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+        return poly[0] * 2.0
+    return ts.rolling(window=window, min_periods=window).apply(hurst_win, raw=True)
+
+def rolling_adf(ts, window=60):
+    """
+    Compute rolling ADF p-value for a time series.
+    Returns a Series aligned to the right edge of each window.
+    """
+    import statsmodels.tsa.stattools as tsastat
+    def adf_win(x):
+        try:
+            return tsastat.adfuller(x)[1]
+        except Exception:
+            return np.nan
+    return ts.rolling(window=window, min_periods=window).apply(adf_win, raw=True)

@@ -26,23 +26,17 @@ def plot_equity_curve(equity_curve: pd.Series, drawdown: pd.Series, title: str =
 
 def plot_monthly_returns(returns: pd.Series, title: str = "Monthly Returns Heatmap") -> None:
     """Plot monthly returns heatmap."""
-    # Resample to monthly returns
-    monthly_returns = returns.resample('M').sum()
-    
-    # Create a pivot table for the heatmap
-    monthly_returns_pivot = monthly_returns.to_frame()
-    monthly_returns_pivot['Year'] = monthly_returns_pivot.index.year
-    monthly_returns_pivot['Month'] = monthly_returns_pivot.index.month
-    monthly_returns_pivot = monthly_returns_pivot.pivot(index='Year', columns='Month', values=0)
+    # Convert returns to percent if not already
+    returns_pct = returns.copy() * 100 if returns.abs().max() < 10 else returns.copy()
+    monthly_returns = returns_pct.resample('M').sum()
+    monthly_returns = monthly_returns.to_frame('Return')
+    monthly_returns['Year'] = monthly_returns.index.year
+    monthly_returns['Month'] = monthly_returns.index.month
+    pivot = monthly_returns.pivot(index='Year', columns='Month', values='Return')
     
     # Plot heatmap
     plt.figure(figsize=(12, 6))
-    sns.heatmap(monthly_returns_pivot * 100, 
-                annot=True, 
-                fmt='.1f', 
-                cmap='RdYlGn', 
-                center=0,
-                cbar_kws={'label': 'Return (%)'})
+    sns.heatmap(pivot, annot=True, fmt='.1f', cmap='YlGn', cbar_kws={'label': 'Return (%)'})
     plt.title(title)
     plt.xlabel('Month')
     plt.ylabel('Year')
@@ -78,14 +72,13 @@ def plot_regime_performance(returns: pd.Series, regimes: pd.Series, title: str =
         'regime': regimes
     })
     
-    # Calculate cumulative returns by regime
-    regime_cumulative = regime_returns.groupby('regime')['returns'].cumsum()
-    
-    # Plot
     plt.figure(figsize=(12, 6))
-    for regime in regime_cumulative.index.unique():
-        regime_data = regime_cumulative[regime_cumulative.index == regime]
-        plt.plot(regime_data.index, regime_data, label=f'Regime {regime}')
+
+    # Plot cumulative returns for each unique regime separately
+    for regime in regime_returns['regime'].unique():
+        regime_data = regime_returns[regime_returns['regime'] == regime]
+        cumulative = regime_data['returns'].cumsum()
+        plt.plot(regime_data.index, cumulative, label=f'Regime {regime}')
     
     plt.title(title)
     plt.xlabel('Date')
@@ -107,12 +100,21 @@ def plot_performance_metrics(metrics: Dict[str, float], title: str = "Performanc
     plt.figure(figsize=(10, 6))
     bars = plt.bar(plot_metrics.keys(), plot_metrics.values())
     
-    # Add value labels on top of bars
-    for bar in bars:
+    # Annotate bars with correct formatting
+    for bar, label in zip(bars, plot_metrics.keys()):
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:.1f}%' if 'Rate' in bar.get_x() or 'Drawdown' in bar.get_x() else f'{height:.2f}',
-                ha='center', va='bottom')
+        if 'rate' in label.lower() or 'drawdown' in label.lower():
+            plt.annotate(f'{height:.1f}%',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+        else:
+            plt.annotate(f'{height:.2f}',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha='center', va='bottom')
     
     plt.title(title)
     plt.xticks(rotation=45)
