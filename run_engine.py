@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # Import modules
 from data.fetch_data import fetch_etf_data, DataFetchError
 import sys
-from pairs.pair_analysis import calculate_cointegration, apply_kalman_filter, calculate_spread_and_zscore, rolling_cointegration, hurst_exponent, adf_pvalue, rolling_hurst, rolling_adf
+from pairs.pair_analysis import apply_kalman_filter, calculate_spread_and_zscore, rolling_cointegration, rolling_hurst, rolling_adf
 from regime.regime_detection import calculate_volatility, train_hmm, predict_regimes
 from backtest import (
     PairsBacktest,
