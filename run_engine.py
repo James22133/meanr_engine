@@ -399,15 +399,13 @@ for i, (pair, signals) in enumerate(list(trade_signals.items())[:num_pairs_to_pl
     plt.show()
 
 logger.info("Initial setup complete. Files created in meanr_engine directory.")
-logger.info("Next steps would be to build the full backtesting loop, risk management, and performance metrics calculation.")
+logger.info("Next steps include refining the backtesting loop, risk management, and performance metrics calculation.")
 
-# --- TODO: Backtesting Loop and Metrics (Future Step) ---
-# Need to implement the actual backtest loop to simulate trades,
-# manage positions, apply stop-loss/take-profit, calculate P&L,
-# drawdowns, Sharpe ratio, etc.
-# This would iterate through the dates, check for signals on each day,
-# consider the current regime, execute trades based on rules,
-# and update portfolio state.
+# --- TODO: Backtesting Loop and Metrics Enhancements (Future Step) ---
+# Expand the existing backtest loop to support more detailed trade simulation,
+# including position management, stop-loss/take-profit logic, and advanced
+# statistics such as drawdown and Sharpe ratio. Iterate through dates while
+# considering the current regime to update portfolio state and metrics.
 
 # --- TODO: Risk Management (Future Step) ---
 # Integrate volatility scaling for position sizing, CVaR control, regime-dependent filters.
