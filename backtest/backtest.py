@@ -77,29 +77,43 @@ class PairsBacktest:
         position_size = (self.config.initial_capital * self.config.target_volatility) / current_vol
         return position_size / 2  # Divide by 2 for dollar-neutral (equal long/short)
     
-    def calculate_trade_pnl(self, trade: Trade) -> float:
-        """Calculate P&L for a trade including slippage and commission."""
-        if trade.exit_price1 is None or trade.exit_price2 is None:
+    def calculate_trade_pnl(
+        self,
+        trade: Trade,
+        current_price1: Optional[float] = None,
+        current_price2: Optional[float] = None,
+    ) -> float:
+        """Calculate P&L for a trade.
+
+        If the trade is still open, current prices can be supplied to mark the
+        position. Slippage and commission are only applied when the trade has
+        explicit exit prices.
+        """
+
+        price1 = trade.exit_price1 if trade.exit_price1 is not None else current_price1
+        price2 = trade.exit_price2 if trade.exit_price2 is not None else current_price2
+
+        if price1 is None or price2 is None:
             return 0.0
-            
+
         # Calculate raw P&L
         if trade.direction == 'long':
-            pnl = (trade.exit_price1 - trade.entry_price1) - (
-                trade.exit_price2 - trade.entry_price2
-            )
+            pnl = (price1 - trade.entry_price1) - (price2 - trade.entry_price2)
         else:
-            pnl = (trade.entry_price1 - trade.exit_price1) + (
-                trade.exit_price2 - trade.entry_price2
-            )
-            
+            pnl = (trade.entry_price1 - price1) + (price2 - trade.entry_price2)
+
         # Apply position size
         pnl *= trade.size
-        
-        # Apply slippage and commission
-        slippage = (self.config.slippage_bps / 10000) * trade.size * 2  # 2 legs
-        commission = (self.config.commission_bps / 10000) * trade.size * 2  # 2 legs
-        
-        return pnl - slippage - commission
+
+        # Apply slippage and commission only when trade is closed
+        if trade.exit_price1 is not None and trade.exit_price2 is not None:
+            slippage = (self.config.slippage_bps / 10000) * trade.size * 2  # 2 legs
+            commission = (
+                self.config.commission_bps / 10000
+            ) * trade.size * 2  # 2 legs
+            pnl -= slippage + commission
+
+        return pnl
     
     def run_backtest(self, 
                     prices: pd.DataFrame,
@@ -228,7 +242,11 @@ class PairsBacktest:
         daily_pnl = 0.0
         for trade in self.positions.values():
             if trade.exit_date is None:  # Position still open
-                current_pnl = self.calculate_trade_pnl(trade)
+                price1 = self.prices.loc[date, trade.asset1]
+                price2 = self.prices.loc[date, trade.asset2]
+                current_pnl = self.calculate_trade_pnl(
+                    trade, current_price1=price1, current_price2=price2
+                )
                 daily_pnl += current_pnl
         return daily_pnl
     

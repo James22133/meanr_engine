@@ -1,4 +1,5 @@
 import datetime
+import pandas as pd
 from backtest.backtest import PairsBacktest, BacktestConfig, Trade
 
 
@@ -51,4 +52,45 @@ def test_calculate_trade_pnl_short():
     )
     pnl = bt.calculate_trade_pnl(trade)
     expected = (100.0 - 90.0) + (100.0 - 95.0)
+    assert pnl == expected
+
+
+def test_calculate_trade_pnl_unrealized():
+    bt = make_backtester()
+    trade = make_trade(
+        exit_date=None,
+        exit_price1=None,
+        exit_price2=None,
+        entry_price1=100.0,
+        entry_price2=95.0,
+    )
+    pnl = bt.calculate_trade_pnl(trade, current_price1=105.0, current_price2=90.0)
+    expected = (105.0 - 100.0) - (90.0 - 95.0)
+    assert pnl == expected
+
+
+def test_calculate_daily_pnl_unrealized():
+    bt = make_backtester()
+    date1 = datetime.datetime(2023, 1, 1)
+    date2 = datetime.datetime(2023, 1, 2)
+    prices = pd.DataFrame(
+        {
+            "A": [100.0, 105.0],
+            "B": [95.0, 90.0],
+        },
+        index=[date1, date2],
+    )
+    bt.prices = prices
+    trade = make_trade(
+        entry_date=date1,
+        exit_date=None,
+        exit_price1=None,
+        exit_price2=None,
+        entry_price1=100.0,
+        entry_price2=95.0,
+        size=1.0,
+    )
+    bt.positions[("A", "B")] = trade
+    pnl = bt._calculate_daily_pnl(date2)
+    expected = (105.0 - 100.0) - (90.0 - 95.0)
     assert pnl == expected
