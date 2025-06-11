@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 import statsmodels.tsa.stattools as ts
 from pykalman import KalmanFilter
+import logging
+
+logger = logging.getLogger(__name__)
 
 def calculate_cointegration(series1, series2):
     """
@@ -24,7 +27,7 @@ def calculate_cointegration(series1, series2):
         result = ts.coint(aligned_series.iloc[:, 0], aligned_series.iloc[:, 1])
         return result[0], result[1], result[2]
     except Exception as e:
-        print(f"Error calculating cointegration: {e}")
+        logger.error("Error calculating cointegration: %s", e)
         return None, None, None
 
 def apply_kalman_filter(y, X):
