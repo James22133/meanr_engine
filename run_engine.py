@@ -27,7 +27,9 @@ ETF_TICKERS = ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "I
 START_DATE = "2020-01-01"
 END_DATE = "2023-01-01"
 COINTEGRATION_WINDOW = 90  # days
-COINTEGRATION_PVALUE_THRESHOLD = 0.2  # or even 0.3 for testing
+# Maximum allowable cointegration p-value when selecting pairs.
+# Pairs with higher values will be ignored.
+COINTEGRATION_PVALUE_THRESHOLD = 0.2
 ZSCORE_WINDOW = 20  # days for rolling mean/std of spread
 HMM_N_COMPONENTS = 2 # Number of market regimes
 REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
@@ -152,9 +154,13 @@ for i in range(len(data.columns)):
 
 # --- Enhancement: Top-N Pair Selection ---
 metrics_df = pd.DataFrame(metrics_list)
+# Exclude pairs that do not meet the cointegration p-value requirement
+metrics_df = metrics_df[metrics_df['coint_p'] <= COINTEGRATION_PVALUE_THRESHOLD]
 metrics_df = compute_pair_scores(metrics_df)
 metrics_df = metrics_df.sort_values("score", ascending=False)
 top_pairs = metrics_df.head(TOP_N_PAIRS)
+if top_pairs.empty:
+    logger.warning("No pairs meet the cointegration p-value threshold.")
 logger.info(f"Top {TOP_N_PAIRS} pairs selected: {top_pairs['pair'].tolist()}")
 
 # Only keep top-N pairs for signal generation and backtesting
