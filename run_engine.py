@@ -416,18 +416,4 @@ logger.info("Next steps would be to build the full backtesting loop, risk manage
 # Refine modularity, add interfaces for different pair selection, filtering, and execution models.
 
 # --- TODO: Output Refinements (Future Step) ---
-# Implement signal heatmap, better performance reporting. 
-
-def plot_regime_performance(returns: pd.Series, regimes: pd.Series, title: str = "Regime-Specific Performance") -> None:
-    regime_returns = pd.DataFrame({'returns': returns, 'regime': regimes})
-    plt.figure(figsize=(12, 6))
-    for regime in regime_returns['regime'].unique():
-        mask = regime_returns['regime'] == regime
-        cumulative = (regime_returns.loc[mask, 'returns'] + 1).cumprod() - 1
-        plt.plot(regime_returns.loc[mask].index, cumulative, label=f'Regime {regime}')
-    plt.title(title)
-    plt.xlabel('Date')
-    plt.ylabel('Cumulative Return')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+# Implement signal heatmap, better performance reporting.
