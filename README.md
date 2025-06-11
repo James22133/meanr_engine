@@ -72,6 +72,22 @@ meanr_engine/
 └── README.md
 ```
 
+## Running Tests
+
+Install the project dependencies if you have not already:
+
+```bash
+pip install -r requirements.txt
+```
+
+Then execute the bundled test runner from the repository root:
+
+```bash
+./scripts/run_tests.sh
+```
+
+This script adds the project root to `PYTHONPATH` before invoking `pytest`.
+
 ## Configuration
 
 Key parameters can be adjusted in `run_engine.py`:
