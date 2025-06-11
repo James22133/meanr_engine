@@ -40,14 +40,20 @@ TOP_N_PAIRS = 5
 
 # --- Enhancement: Composite Scoring Function ---
 def compute_pair_score(coint_p, hurst, adf_p, zscore_vol):
-    # Lower is better for all metrics; normalize to [0,1] for each
+    """Return a simple average-based score (lower metrics yield higher score)."""
     metrics = np.array([coint_p, hurst, adf_p, zscore_vol])
-    # If any metric is nan, set to 1 (worst)
     metrics = np.where(np.isnan(metrics), 1.0, metrics)
-    # Min-max normalization (safe for small N)
-    norm = (metrics - metrics.min()) / (metrics.max() - metrics.min() + 1e-8)
-    # Equal weights for now
-    return 1 - norm.mean()  # Higher score is better
+    return 1 - metrics.mean()
+
+
+def compute_pair_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute normalized composite scores for all pairs."""
+    metrics_cols = ["coint_p", "hurst", "adf_p", "zscore_vol"]
+    norm = (df[metrics_cols] - df[metrics_cols].min()) / (
+        df[metrics_cols].max() - df[metrics_cols].min() + 1e-8
+    )
+    df["score"] = 1 - norm.mean(axis=1)
+    return df
 
 # --- Data Fetching ---
 logger.info(f"Fetching data for {ETF_TICKERS}...")
@@ -128,14 +134,15 @@ for i in range(len(data.columns)):
 
         # --- Enhancement: Composite Score ---
         score = compute_pair_score(last_coint_p, last_hurst, last_adf_p, zscore_vol)
-        logger.info(f"Pair {asset1_ticker}-{asset2_ticker}: coint_p={last_coint_p:.3f}, hurst={last_hurst:.3f}, adf_p={last_adf_p:.3f}, zscore_vol={zscore_vol:.3f}, score={score:.3f}")
+        logger.info(
+            f"Pair {asset1_ticker}-{asset2_ticker}: coint_p={last_coint_p:.3f}, hurst={last_hurst:.3f}, adf_p={last_adf_p:.3f}, zscore_vol={zscore_vol:.3f}, score={score:.3f}"
+        )
         metrics_list.append({
             'pair': (asset1_ticker, asset2_ticker),
             'coint_p': last_coint_p,
             'hurst': last_hurst,
             'adf_p': last_adf_p,
             'zscore_vol': zscore_vol,
-            'score': score,
             'z_score': z_score,
             'kalman_states': kf_states,
             'rolling_hurst': rolling_hurst_vals,
@@ -145,7 +152,8 @@ for i in range(len(data.columns)):
 
 # --- Enhancement: Top-N Pair Selection ---
 metrics_df = pd.DataFrame(metrics_list)
-metrics_df = metrics_df.sort_values('score', ascending=False)
+metrics_df = compute_pair_scores(metrics_df)
+metrics_df = metrics_df.sort_values("score", ascending=False)
 top_pairs = metrics_df.head(TOP_N_PAIRS)
 logger.info(f"Top {TOP_N_PAIRS} pairs selected: {top_pairs['pair'].tolist()}")
 
@@ -230,7 +238,6 @@ for pair, signals in trade_signals.items():
     prices.columns = [ticker_y, ticker_X]
 
     backtest = PairsBacktest(config)
-    backtest.prices = prices
     backtest.prices = prices
     backtest.run_backtest(prices, {pair: signals}, regime_series)
     metrics = backtest.get_performance_metrics()
