@@ -47,10 +47,15 @@ required for regime detection and Kalman filtering.
 
 Run the main engine:
 ```bash
-python run_engine.py
+python run_engine.py --config config.yaml
 ```
 
-This will:
+Optional flags include:
+
+- `--config PATH` - path to the configuration file (defaults to `config.yaml`)
+- `--live` - enable live trading mode (placeholder)
+
+Running the engine will:
 1. Fetch ETF data
 2. Detect market regimes
 3. Generate trading signals
