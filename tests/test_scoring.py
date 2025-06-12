@@ -6,12 +6,12 @@ from run_engine import compute_pair_score, compute_pair_scores
 
 def test_compute_pair_score_basic():
     score = compute_pair_score(0.1, 0.2, 0.3, 0.4)
-    assert score == 1 - np.mean([0.1, 0.2, 0.3, 0.4])
+    assert score == 1 - np.nanmean([0.1, 0.2, 0.3, 0.4])
 
 
 def test_compute_pair_score_handles_nan():
     score = compute_pair_score(np.nan, 0.2, 0.3, 0.4)
-    expected = 1 - np.mean([1.0, 0.2, 0.3, 0.4])
+    expected = 1 - np.nanmean([np.nan, 0.2, 0.3, 0.4])
     assert np.isclose(score, expected)
 
 

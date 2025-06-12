@@ -72,9 +72,28 @@ PAIR_PARAMS = {
 
 # --- Enhancement: Composite Scoring Function ---
 def compute_pair_score(coint_p, hurst, adf_p, zscore_vol):
-    """Composite score: penalize high zscore_vol, reward low coint_p and high Hurst."""
-    # Lower coint_p, higher hurst, lower adf_p, lower zscore_vol are better
-    score = (1 - coint_p) * 0.4 + hurst * 0.3 + (1 - adf_p) * 0.1 + (1 - zscore_vol / (zscore_vol + 1e-6)) * 0.2
+    """Return ``1 - np.nanmean`` of the provided metrics.
+
+    Parameters
+    ----------
+    coint_p : float
+        P-value from the cointegration test.
+    hurst : float
+        Estimated Hurst exponent.
+    adf_p : float
+        P-value from the augmented Dickey-Fuller test.
+    zscore_vol : float
+        Volatility of the pair's z-score.
+
+    Returns
+    -------
+    float
+        Composite score where lower metric values yield higher scores. ``NaN``
+        values are ignored via ``np.nanmean``.
+    """
+
+    values = [coint_p, hurst, adf_p, zscore_vol]
+    score = 1 - np.nanmean(values)
     return score
 
 
