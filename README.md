@@ -108,12 +108,20 @@ All parameters are stored in `config.yaml`, which is read at runtime by
 `config.load_config()`. Edit this file to tweak tickers, thresholds and other
 settings.
 
+`CROSSVAL_TRAIN_DAYS` and `CROSSVAL_TEST_DAYS` control the size of the rolling
+training and testing windows used in `run_engine.py`. The engine trains models
+on the most recent `CROSSVAL_TRAIN_DAYS` of data, evaluates on the following
+`CROSSVAL_TEST_DAYS`, then advances the window by the test period length to
+create the next fold.
+
 Example snippet:
 
 ```yaml
 ETF_TICKERS:
   - XOM
   - CVX
+CROSSVAL_TRAIN_DAYS: 252  # one year of training
+CROSSVAL_TEST_DAYS: 63    # three months of testing
 PAIR_PARAMS:
   XOM_CVX:
     entry_threshold: 1.8
