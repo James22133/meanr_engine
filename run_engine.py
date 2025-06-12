@@ -18,6 +18,7 @@ from backtest import (
     PairsBacktest,
     BacktestConfig
 )
+from optimization import grid_search
 
 # --- Configuration ---
 # Parameters are loaded from config.yaml at runtime.
@@ -411,6 +412,60 @@ def main(config_path="config.yaml"):
     # --- TODO: Output Refinements (Future Step) ---
     # Implement signal heatmap, better performance reporting.
 
+def run_grid_search(
+    config_path: str,
+    entry_thresholds: list[float] | None = None,
+    exit_thresholds: list[float] | None = None,
+    stop_loss_ks: list[float] | None = None,
+) -> None:
+    """Run parameter grid search and save results."""
+    cfg = load_config(config_path)
+    grid_cfg = cfg.get("grid_search", {})
+
+    if entry_thresholds is None:
+        entry_thresholds = grid_cfg.get("entry_thresholds", [1.5, 2.0])
+    if exit_thresholds is None:
+        exit_thresholds = grid_cfg.get("exit_thresholds", [0.1])
+    if stop_loss_ks is None:
+        stop_loss_ks = grid_cfg.get("stop_loss_ks", [2.0])
+
+    if cfg.get("MANUAL_PAIR_LIST"):
+        asset1, asset2 = cfg["MANUAL_PAIR_LIST"][0]
+    else:
+        asset1, asset2 = cfg["ETF_TICKERS"][:2]
+    logger.info(f"Running grid search on pair: {asset1}-{asset2}")
+
+    try:
+        prices = fetch_etf_data([asset1, asset2], cfg["START_DATE"], cfg["END_DATE"])
+    except DataFetchError as e:
+        logger.error(f"Data fetch failed: {e}")
+        return
+
+    prices = prices.dropna()
+    regimes = pd.Series(index=prices.index, data=0)
+
+    bt_cfg = cfg.get("backtest", BacktestConfig())
+    if isinstance(bt_cfg, dict):
+        bt_cfg = BacktestConfig(**bt_cfg)
+
+    df = grid_search.grid_search(
+        prices[[asset1, asset2]],
+        grid_search.generate_signals,
+        regimes,
+        entry_thresholds,
+        exit_thresholds,
+        stop_loss_ks,
+        base_config=bt_cfg,
+    )
+
+    if df.empty:
+        logger.warning("Grid search returned no results")
+    else:
+        print(df)
+        df.to_csv("grid_search_results.csv", index=False)
+        logger.info("Results saved to grid_search_results.csv")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the mean reversion engine")
     parser.add_argument(
@@ -418,6 +473,30 @@ if __name__ == "__main__":
         default="config.yaml",
         help="Path to configuration file",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["run", "grid-search"],
+        default="run",
+        help="Execution mode",
+    )
+    parser.add_argument("--entry-thresholds", help="Comma separated thresholds")
+    parser.add_argument("--exit-thresholds", help="Comma separated thresholds")
+    parser.add_argument("--stop-loss-ks", help="Comma separated multipliers")
+
     args = parser.parse_args()
-    main(args.config)
+
+    def _parse_list(s: str | None) -> list[float] | None:
+        if s is None:
+            return None
+        return [float(x) for x in s.split(",") if x]
+
+    if args.mode == "grid-search":
+        run_grid_search(
+            args.config,
+            entry_thresholds=_parse_list(args.entry_thresholds),
+            exit_thresholds=_parse_list(args.exit_thresholds),
+            stop_loss_ks=_parse_list(args.stop_loss_ks),
+        )
+    else:
+        main(args.config)
 

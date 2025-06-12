@@ -54,6 +54,20 @@ Optional flags include:
 
 - `--config PATH` - path to the configuration file (defaults to `config.yaml`)
 
+### Parameter Grid Search
+
+To evaluate different threshold combinations, run the grid search mode:
+
+```bash
+python run_engine.py --mode grid-search \
+    --entry-thresholds 1.5,2.0 \
+    --exit-thresholds 0.1 \
+    --stop-loss-ks 2.0
+```
+
+Ranges may also be specified in the `grid_search` section of `config.yaml`.
+Results are printed and saved to `grid_search_results.csv`.
+
 Running the engine will:
 1. Fetch ETF data
 2. Detect market regimes
