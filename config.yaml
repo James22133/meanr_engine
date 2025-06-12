@@ -1,3 +1,4 @@
+# Configuration for Mean Reversion Engine
 {
   "ETF_TICKERS": ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF", "XOM", "CVX", "SLB", "HAL", "MPC", "VLO", "COP", "EOG", "DVN", "ET", "EPD", "OXY", "MRO"],
   "START_DATE": "2020-01-01",

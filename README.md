@@ -41,7 +41,8 @@ pip install -r requirements.txt
 ```
 
 The list includes core packages such as `hmmlearn` and `pykalman` which are
-required for regime detection and Kalman filtering.
+required for regime detection and Kalman filtering. `PyYAML` is also included
+so the engine can parse the `config.yaml` file using a safe YAML loader.
 
 ## Usage
 
@@ -97,7 +98,9 @@ This script adds the project root to `PYTHONPATH` before invoking `pytest`.
 
 ## Configuration
 
-Key parameters can be adjusted in `run_engine.py`:
+Configuration parameters are stored in `config.yaml` and loaded with
+`PyYAML`'s safe loader. Key settings can also be adjusted directly in
+`run_engine.py`:
 - ETF tickers
 - Date range
 - Cointegration window

@@ -1,13 +1,13 @@
-import json
+import yaml
 from pathlib import Path
 
 
 def load_config(path: str = "config.yaml") -> dict:
     """Load configuration from a YAML/JSON file.
 
-    The parser expects the file to contain JSON-formatted data, which is a
-    subset of YAML. This avoids the need for external YAML libraries.
+    Uses ``yaml.safe_load`` so standard YAML features like comments are
+    supported.
     """
     config_path = Path(path)
     with config_path.open("r") as f:
-        return json.load(f)
+        return yaml.safe_load(f)
