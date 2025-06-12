@@ -13,6 +13,8 @@ from data.fetch_data import fetch_etf_data, DataFetchError
 import sys
 from pairs.pair_analysis import apply_kalman_filter, calculate_spread_and_zscore, rolling_cointegration, rolling_hurst, rolling_adf
 from regime.regime_detection import calculate_volatility, train_hmm, predict_regimes
+from config import load_config
+
 from backtest import (
     PairsBacktest,
     BacktestConfig,
@@ -24,51 +26,7 @@ from backtest import (
 )
 
 # --- Configuration ---
-ETF_TICKERS = [
-    "SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF",
-    "XOM", "CVX", "SLB", "HAL", "MPC", "VLO", "COP", "EOG", "DVN", "ET", "EPD", "OXY", "MRO"
-]
-START_DATE = "2020-01-01"
-END_DATE = "2023-01-01"
-COINTEGRATION_WINDOW = 90  # days
-# Maximum allowable cointegration p-value when selecting pairs.
-# Pairs with higher values will be ignored.
-COINTEGRATION_PVALUE_THRESHOLD = 0.2
-ZSCORE_WINDOW = 20  # days for rolling mean/std of spread
-HMM_N_COMPONENTS = 3 # Number of market regimes (increased from 2 to 3)
-REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
-# Define the "stable" regime - this will need to be determined empirically
-# after training the HMM. For now, let's assume regime 0 is stable.
-STABLE_REGIME_INDEX = 0
-
-# --- Enhancement: Top-N Pair Selection Parameter ---
-TOP_N_PAIRS = 5
-
-# --- Optional: Sector Filtering and Manual Pair List ---
-SECTOR_FILTER_ENABLED = True
-SECTOR_MAP = {
-    'XOM': 'Energy', 'CVX': 'Energy', 'SLB': 'Energy', 'HAL': 'Energy',
-    'MPC': 'Energy', 'VLO': 'Energy', 'COP': 'Energy', 'EOG': 'Energy',
-    'DVN': 'Energy', 'ET': 'Energy', 'EPD': 'Energy', 'OXY': 'Energy', 'MRO': 'Energy'
-}
-MANUAL_PAIR_LIST = [
-    ('XOM', 'CVX'),
-    ('SLB', 'HAL'),
-    ('MPC', 'VLO'),
-    ('COP', 'XOM'),
-    ('EOG', 'DVN'),
-    ('ET', 'EPD'),
-    ('OXY', 'MRO'),
-]
-PAIR_PARAMS = {
-    ('XOM', 'CVX'): {'entry_threshold': 1.8, 'exit_threshold': 0.5, 'stop_loss_k': 2.0},
-    ('SLB', 'HAL'): {'entry_threshold': 2.0, 'exit_threshold': 0.7, 'stop_loss_k': 1.5},
-    ('MPC', 'VLO'): {'entry_threshold': 1.9, 'exit_threshold': 0.6, 'stop_loss_k': 2.2},
-    ('COP', 'XOM'): {'entry_threshold': 2.1, 'exit_threshold': 0.5, 'stop_loss_k': 1.8},
-    ('EOG', 'DVN'): {'entry_threshold': 2.0, 'exit_threshold': 0.7, 'stop_loss_k': 2.0},
-    ('ET', 'EPD'): {'entry_threshold': 1.7, 'exit_threshold': 0.5, 'stop_loss_k': 1.6},
-    ('OXY', 'MRO'): {'entry_threshold': 2.2, 'exit_threshold': 0.8, 'stop_loss_k': 2.1},
-}
+# Parameters are loaded from config.yaml at runtime.
 
 # --- Enhancement: Composite Scoring Function ---
 def compute_pair_score(coint_p, hurst, adf_p, zscore_vol):
@@ -107,7 +65,23 @@ def compute_pair_scores(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def main():
+def main(config_path="config.yaml"):
+    cfg = load_config(config_path)
+    ETF_TICKERS = cfg["ETF_TICKERS"]
+    START_DATE = cfg["START_DATE"]
+    END_DATE = cfg["END_DATE"]
+    COINTEGRATION_WINDOW = cfg["COINTEGRATION_WINDOW"]
+    COINTEGRATION_PVALUE_THRESHOLD = cfg["COINTEGRATION_PVALUE_THRESHOLD"]
+    ZSCORE_WINDOW = cfg["ZSCORE_WINDOW"]
+    HMM_N_COMPONENTS = cfg["HMM_N_COMPONENTS"]
+    REGIME_VOLATILITY_WINDOW = cfg["REGIME_VOLATILITY_WINDOW"]
+    STABLE_REGIME_INDEX = cfg["STABLE_REGIME_INDEX"]
+    TOP_N_PAIRS = cfg["TOP_N_PAIRS"]
+    SECTOR_FILTER_ENABLED = cfg["SECTOR_FILTER_ENABLED"]
+    SECTOR_MAP = cfg["SECTOR_MAP"]
+    MANUAL_PAIR_LIST = [tuple(p) for p in cfg.get("MANUAL_PAIR_LIST", [])]
+    PAIR_PARAMS = {tuple(k.split("_")): v for k, v in cfg.get("PAIR_PARAMS", {}).items()}
+
 
     # --- Data Fetching ---
     logger.info(f"Fetching data for {ETF_TICKERS}...")
