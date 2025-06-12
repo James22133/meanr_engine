@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import logging
 import json
+import argparse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -493,5 +494,17 @@ def main(config_path="config.yaml"):
     # Implement signal heatmap, better performance reporting.
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Run the mean reversion engine")
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to configuration file",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Run in live trading mode",
+    )
+    args = parser.parse_args()
+    main(args.config)
 
