@@ -1,0 +1,38 @@
+{
+  "ETF_TICKERS": ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF", "XOM", "CVX", "SLB", "HAL", "MPC", "VLO", "COP", "EOG", "DVN", "ET", "EPD", "OXY", "MRO"],
+  "START_DATE": "2020-01-01",
+  "END_DATE": "2023-01-01",
+  "COINTEGRATION_WINDOW": 90,
+  "COINTEGRATION_PVALUE_THRESHOLD": 0.2,
+  "ZSCORE_WINDOW": 20,
+  "HMM_N_COMPONENTS": 3,
+  "REGIME_VOLATILITY_WINDOW": 20,
+  "STABLE_REGIME_INDEX": 0,
+  "TOP_N_PAIRS": 5,
+  "SECTOR_FILTER_ENABLED": true,
+  "SECTOR_MAP": {
+    "XOM": "Energy",
+    "CVX": "Energy",
+    "SLB": "Energy",
+    "HAL": "Energy",
+    "MPC": "Energy",
+    "VLO": "Energy",
+    "COP": "Energy",
+    "EOG": "Energy",
+    "DVN": "Energy",
+    "ET": "Energy",
+    "EPD": "Energy",
+    "OXY": "Energy",
+    "MRO": "Energy"
+  },
+  "MANUAL_PAIR_LIST": [["XOM", "CVX"], ["SLB", "HAL"], ["MPC", "VLO"], ["COP", "XOM"], ["EOG", "DVN"], ["ET", "EPD"], ["OXY", "MRO"]],
+  "PAIR_PARAMS": {
+    "XOM_CVX": {"entry_threshold": 1.8, "exit_threshold": 0.5, "stop_loss_k": 2.0},
+    "SLB_HAL": {"entry_threshold": 2.0, "exit_threshold": 0.7, "stop_loss_k": 1.5},
+    "MPC_VLO": {"entry_threshold": 1.9, "exit_threshold": 0.6, "stop_loss_k": 2.2},
+    "COP_XOM": {"entry_threshold": 2.1, "exit_threshold": 0.5, "stop_loss_k": 1.8},
+    "EOG_DVN": {"entry_threshold": 2.0, "exit_threshold": 0.7, "stop_loss_k": 2.0},
+    "ET_EPD": {"entry_threshold": 1.7, "exit_threshold": 0.5, "stop_loss_k": 1.6},
+    "OXY_MRO": {"entry_threshold": 2.2, "exit_threshold": 0.8, "stop_loss_k": 2.1}
+  }
+}
