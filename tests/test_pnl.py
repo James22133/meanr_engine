@@ -22,6 +22,7 @@ def make_trade(**kwargs):
         size=1.0,
         pnl=None,
         exit_reason="signal",
+        stop_loss_k=2.0,
     )
     defaults.update(kwargs)
     return Trade(**defaults)
@@ -94,3 +95,41 @@ def test_calculate_daily_pnl_unrealized():
     pnl = bt._calculate_daily_pnl(date2)
     expected = (105.0 - 100.0) - (90.0 - 95.0)
     assert pnl == expected
+
+
+def test_update_positions_uses_trade_stop_loss_k():
+    config = BacktestConfig(slippage_bps=0.0, commission_bps=0.0, stop_loss_k=1.0)
+    bt = PairsBacktest(config)
+
+    dates = pd.date_range("2023-01-01", periods=21)
+    t_values = list(range(19)) + [19, 10]
+    prices = pd.DataFrame(
+        {
+            "A": [10 + t for t in t_values],
+            "B": [5] * len(t_values),
+        },
+        index=dates,
+    )
+    bt.prices = prices
+    bt.realized_pnl = pd.Series(index=prices.index, data=0.0)
+    bt.equity_curve = pd.Series(index=prices.index, data=bt.config.initial_capital)
+
+    trade = Trade(
+        entry_date=dates[19],
+        exit_date=None,
+        asset1="A",
+        asset2="B",
+        direction="long",
+        entry_price1=prices.loc[dates[19], "A"],
+        entry_price2=prices.loc[dates[19], "B"],
+        exit_price1=None,
+        exit_price2=None,
+        size=1.0,
+        pnl=None,
+        exit_reason=None,
+        stop_loss_k=2.0,
+    )
+    bt.positions[("A", "B")] = trade
+
+    bt._update_positions(dates[20], prices.loc[dates[20]])
+    assert ("A", "B") in bt.positions
