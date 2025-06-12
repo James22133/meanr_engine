@@ -8,6 +8,8 @@ pykalman>=0.9.5
 hmmlearn>=0.3.0
 quantstats>=0.0.59
 numba>=0.57.0
+# YAML parsing
+pyyaml>=6.0
 # Additional useful libraries
 scikit-learn>=1.0.0  # For machine learning models and feature engineering
 ta>=0.10.0  # Technical analysis indicators (pure Python implementation)
