@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import logging
-import json
 import argparse
 
 # Configure logging
@@ -18,12 +16,7 @@ from config import load_config
 
 from backtest import (
     PairsBacktest,
-    BacktestConfig,
-    plot_equity_curve,
-    plot_monthly_returns,
-    plot_trade_distribution,
-    plot_regime_performance,
-    plot_performance_metrics
+    BacktestConfig
 )
 
 # --- Configuration ---
@@ -365,18 +358,6 @@ def main(config_path="config.yaml"):
     else:
         drawdown = pd.Series(index=combined_equity_curve.index, data=np.nan)
     
-    # Plot equity curve and drawdown
-    plot_equity_curve(combined_equity_curve, drawdown)
-    
-    # Plot monthly returns heatmap
-    plot_monthly_returns(combined_daily_returns)
-    
-    # Plot trade distribution
-    plot_trade_distribution([vars(t) for t in all_trades])
-    
-    # Plot regime-specific performance
-    plot_regime_performance(combined_daily_returns, regime_series)
-    
     # Calculate performance metrics
     closed_trades = [t for t in all_trades if t.exit_date is not None]
     winning_trades = [t for t in closed_trades if t.pnl and t.pnl > 0]
@@ -398,26 +379,10 @@ def main(config_path="config.yaml"):
         'winning_trades': len(winning_trades)
     }
     
-    plot_performance_metrics(metrics)
-    
     # Save trade history
     trades_df = pd.DataFrame([vars(t) for t in all_trades])
     trades_df.to_csv('trade_history.csv', index=False)
     
-    # --- Detailed Analytics Output ---
-    analytics = {}
-    analytics['total_net_pnl'] = float(trades_df['pnl'].sum())
-    analytics['average_pnl'] = float(trades_df['pnl'].mean())
-    analytics['average_pnl_long'] = float(trades_df[trades_df['direction'] == 'long']['pnl'].mean()) if not trades_df[trades_df['direction'] == 'long'].empty else None
-    analytics['average_pnl_short'] = float(trades_df[trades_df['direction'] == 'short']['pnl'].mean()) if not trades_df[trades_df['direction'] == 'short'].empty else None
-    analytics['win_rate'] = float((trades_df['pnl'] > 0).mean())
-    analytics['pnl_std'] = float(trades_df['pnl'].std())
-    analytics['sharpe_ratio'] = float(sharpe_ratio)
-    analytics['equity_curve'] = combined_equity_curve.dropna().astype(float).to_dict()
-    analytics['trade_pnl_histogram'] = np.histogram(trades_df['pnl'].dropna(), bins=20)[0].tolist()
-    with open('backtest_analytics.json', 'w') as f:
-        json.dump(analytics, f, indent=2)
-    logger.info("\nAnalytics saved to backtest_analytics.json")
     
     logger.info("\nBacktest complete. Performance metrics:")
     for metric, value in metrics.items():
@@ -427,53 +392,6 @@ def main(config_path="config.yaml"):
             logger.info(f"{metric}: {value:.2f}")
     
     logger.info("\nTrade history saved to trade_history.csv")
-    
-    # --- Visualization/Initial Output ---
-    logger.info("Generating plots...")
-    # Plot Z-score with entry/exit signals and regime overlay for a few pairs
-    num_pairs_to_plot = min(3, len(trade_signals))
-    
-    for i, (pair, signals) in enumerate(list(trade_signals.items())[:num_pairs_to_plot]):
-        asset1_ticker, asset2_ticker = pair
-        z_score = signals['z_score']
-        regimes = signals['regime']
-        entry_short = signals['entry_short']
-        entry_long = signals['entry_long']
-        exit_signal = signals['exit']
-    
-        plt.figure(figsize=(14, 7))
-        ax1 = plt.gca()
-    
-        # Plot Z-score
-        ax1.plot(z_score.index, z_score, label='Z-score', color='blue')
-        ax1.axhline(2, color='red', linestyle='--', label='Entry Short (Z=2)')
-        ax1.axhline(-2, color='green', linestyle='--', label='Entry Long (Z=-2)')
-        ax1.axhline(0, color='gray', linestyle='--', label='Exit (Z=0)')
-        ax1.set_ylabel('Z-score', color='blue')
-        ax1.tick_params(axis='y', labelcolor='blue')
-        ax1.set_title(f'Z-score and Regime Overlay for {asset1_ticker}-{asset2_ticker}')
-    
-        # Overlay regimes
-        ax2 = ax1.twinx()
-        # Plot regimes as stepped line or background color
-        # Using scatter plot aligned to the date index where regimes and z_scores exist
-        regime_colors = ['purple' if r == STABLE_REGIME_INDEX else 'orange' for r in regimes]
-        ax2.scatter(regimes.index, regimes, c=regime_colors, alpha=0.3, label='Regime', s=5)
-        ax2.set_ylabel('Regime Index', color='purple')
-        ax2.tick_params(axis='y', labelcolor='purple')
-        ax2.set_yticks(np.unique(regimes))
-    
-        # Plot trading signals
-        ax1.scatter(z_score[entry_short].index, z_score[entry_short], marker='^', color='red', s=100, label='Short Entry (Filtered)')
-        ax1.scatter(z_score[entry_long].index, z_score[entry_long], marker='v', color='green', s=100, label='Long Entry (Filtered)')
-        # Plot exits - might need position tracking in backtest loop to filter properly
-        # For now, just show where the Z-score is near zero for visualization
-        # ax1.scatter(z_score[exit_signal].index, z_score[exit_signal], marker='x', color='black', s=50, label='Exit Signal')
-    
-        ax1.legend(loc='upper left')
-        ax2.legend(loc='upper right')
-        plt.grid(True)
-        plt.show()
     
     logger.info("Initial setup complete. Files created in meanr_engine directory.")
     logger.info("Next steps include refining the backtesting loop, risk management, and performance metrics calculation.")
