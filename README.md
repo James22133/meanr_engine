@@ -104,7 +104,9 @@ settings.
 Example snippet:
 
 ```yaml
-ETF_TICKERS: ["XOM", "CVX"]
+ETF_TICKERS:
+  - XOM
+  - CVX
 PAIR_PARAMS:
   XOM_CVX:
     entry_threshold: 1.8
