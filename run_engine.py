@@ -260,15 +260,9 @@ def main(config_path="config.yaml"):
     
     # --- Run Backtest ---
     logger.info("Running backtest across all pairs...")
-    config = BacktestConfig(
-        initial_capital=1_000_000,
-        target_volatility=0.10,
-        slippage_bps=2.0,
-        commission_bps=1.0,
-        stop_loss_k=2.0,
-        zscore_entry_threshold=2.0,
-        zscore_exit_threshold=0.1
-    )
+    config = cfg.get("backtest", BacktestConfig())
+    if isinstance(config, dict):
+        config = BacktestConfig(**config)
     
     # Codex's improved loop: run backtest per pair and aggregate
     pair_results = []

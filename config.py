@@ -1,12 +1,16 @@
 import yaml
 from pathlib import Path
+from backtest import BacktestConfig
 
 
 def load_config(path: str = "config.yaml") -> dict:
-    """Load configuration from a YAML file.
+    """Load configuration from a YAML file and parse nested sections."""
 
-    Uses ``yaml.safe_load`` to fully support standard YAML syntax.
-    """
     config_path = Path(path)
     with config_path.open("r") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+
+    backtest_cfg = cfg.get("backtest", {}) or {}
+    cfg["backtest"] = BacktestConfig(**backtest_cfg)
+
+    return cfg
