@@ -70,6 +70,7 @@ def main(config_path="config.yaml"):
     ETF_TICKERS = cfg["ETF_TICKERS"]
     START_DATE = cfg["START_DATE"]
     END_DATE = cfg["END_DATE"]
+    TRAIN_SPLIT = cfg.get("TRAIN_SPLIT", 0.7)
     COINTEGRATION_WINDOW = cfg["COINTEGRATION_WINDOW"]
     COINTEGRATION_PVALUE_THRESHOLD = cfg["COINTEGRATION_PVALUE_THRESHOLD"]
     ZSCORE_WINDOW = cfg["ZSCORE_WINDOW"]
@@ -98,6 +99,14 @@ def main(config_path="config.yaml"):
     
     logger.info("Data fetched successfully.")
     logger.info("Available tickers: %s", data.columns.tolist())
+
+    # --- Train/Test Split ---
+    split_idx = int(len(data) * TRAIN_SPLIT)
+    train_data = data.iloc[:split_idx]
+    oos_data = data.iloc[split_idx:]
+    logger.info(
+        "Training samples: %s, OOS samples: %s", len(train_data), len(oos_data)
+    )
     
     # --- Market Regime Detection ---
     logger.info("Detecting market regimes...")
@@ -122,20 +131,23 @@ def main(config_path="config.yaml"):
     else:
         entropy = pd.Series(index=data.index, data=0.0)
     
-    hmm_features = pd.DataFrame({
-        'volatility': market_volatility,
-        'beta': beta,
-        'entropy': entropy
-    }).dropna()
-    
-    if not hmm_features.empty:
-        hmm_model = train_hmm(hmm_features, n_components=HMM_N_COMPONENTS)
+    hmm_features = pd.DataFrame(
+        {
+            "volatility": market_volatility,
+            "beta": beta,
+            "entropy": entropy,
+        }
+    ).dropna()
+
+    train_features = hmm_features.loc[hmm_features.index.intersection(train_data.index)]
+    if not train_features.empty:
+        hmm_model = train_hmm(train_features, n_components=HMM_N_COMPONENTS)
         regimes = predict_regimes(hmm_model, hmm_features)
         regime_series = pd.Series(regimes, index=hmm_features.index)
         logger.info("Market regimes detected.")
     else:
         logger.warning("Not enough data to calculate market volatility and train HMM. Skipping regime detection.")
-        regime_series = pd.Series(index=data.index, data=STABLE_REGIME_INDEX) # Assume stable if no HMM
+        regime_series = pd.Series(index=data.index, data=STABLE_REGIME_INDEX)  # Assume stable if no HMM
     
     # --- Pairs Trading Analysis and Signal Generation ---
     logger.info("Performing pairs analysis and generating signals...")
@@ -157,24 +169,44 @@ def main(config_path="config.yaml"):
         if asset1_ticker not in data.columns or asset2_ticker not in data.columns:
             continue
         logger.info(f"Analyzing pair: {asset1_ticker} and {asset2_ticker}")
-        price_y = data[asset1_ticker]
-        price_X = data[asset2_ticker]
-        aligned_prices = pd.concat([price_y, price_X], axis=1).dropna()
-        if len(aligned_prices) < 80:
+        price_y_full = data[asset1_ticker]
+        price_X_full = data[asset2_ticker]
+        price_y_train = train_data[asset1_ticker]
+        price_X_train = train_data[asset2_ticker]
+
+        aligned_train = pd.concat([price_y_train, price_X_train], axis=1).dropna()
+        if len(aligned_train) < 80:
             logger.info(f"Skipping pair {asset1_ticker}-{asset2_ticker}: Not enough data.")
             continue
-        price_y_aligned = aligned_prices.iloc[:, 0]
-        price_X_aligned = aligned_prices.iloc[:, 1]
-        rolling_coint_pvals = rolling_cointegration(price_y_aligned, price_X_aligned, window=60)
-        last_coint_p = rolling_coint_pvals.dropna().iloc[-1] if not rolling_coint_pvals.dropna().empty else 1.0
-        kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
-        spread = price_y_aligned - pd.Series(kf_states[:, 1], index=price_X_aligned.index) * price_X_aligned
-        rolling_hurst_vals = rolling_hurst(spread.dropna(), window=60)
-        rolling_adf_vals = rolling_adf(spread.dropna(), window=60)
-        last_hurst = rolling_hurst_vals.dropna().iloc[-1] if not rolling_hurst_vals.dropna().empty else 1.0
-        last_adf_p = rolling_adf_vals.dropna().iloc[-1] if not rolling_adf_vals.dropna().empty else 1.0
-        z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states, rolling_window=ZSCORE_WINDOW)
-        zscore_vol = z_score.rolling(60).std().dropna().iloc[-1] if z_score.rolling(60).std().dropna().size > 0 else 1.0
+
+        price_y_train_aligned = aligned_train.iloc[:, 0]
+        price_X_train_aligned = aligned_train.iloc[:, 1]
+
+        rolling_coint_pvals = rolling_cointegration(price_y_train_aligned, price_X_train_aligned, window=60)
+        last_coint_p = (
+            rolling_coint_pvals.dropna().iloc[-1] if not rolling_coint_pvals.dropna().empty else 1.0
+        )
+
+        kf_states, kf_covs = apply_kalman_filter(price_y_full, price_X_full)
+        aligned_full = pd.concat([price_y_full, price_X_full], axis=1).dropna()
+        spread_full = aligned_full.iloc[:, 0] - pd.Series(kf_states[:, 1], index=aligned_full.index) * aligned_full.iloc[:, 1]
+        spread_train = spread_full.loc[train_data.index.intersection(spread_full.index)]
+        rolling_hurst_vals = rolling_hurst(spread_train.dropna(), window=60)
+        rolling_adf_vals = rolling_adf(spread_train.dropna(), window=60)
+        last_hurst = (
+            rolling_hurst_vals.dropna().iloc[-1] if not rolling_hurst_vals.dropna().empty else 1.0
+        )
+        last_adf_p = (
+            rolling_adf_vals.dropna().iloc[-1] if not rolling_adf_vals.dropna().empty else 1.0
+        )
+
+        z_score = calculate_spread_and_zscore(price_y_full, price_X_full, kf_states, rolling_window=ZSCORE_WINDOW)
+        zscore_vol_series = z_score.loc[train_data.index]
+        zscore_vol = (
+            zscore_vol_series.rolling(60).std().dropna().iloc[-1]
+            if zscore_vol_series.rolling(60).std().dropna().size > 0
+            else 1.0
+        )
         score = compute_pair_score(last_coint_p, last_hurst, last_adf_p, zscore_vol)
         logger.info(
             f"Pair {asset1_ticker}-{asset2_ticker}: coint_p={last_coint_p:.3f}, hurst={last_hurst:.3f}, adf_p={last_adf_p:.3f}, zscore_vol={zscore_vol:.3f}, score={score:.3f}"
@@ -269,10 +301,12 @@ def main(config_path="config.yaml"):
     for pair, signals in trade_signals.items():
         ticker_y, ticker_X = pair
         logger.info(f"Backtesting pair: {ticker_y}-{ticker_X}")
-    
-        # Use only the dates where both price series are available
-        prices = data.loc[:, [ticker_y, ticker_X]].dropna()
+
+        # Use only the dates where both price series are available within the OOS period
+        prices = oos_data.loc[:, [ticker_y, ticker_X]].dropna()
         prices.columns = [ticker_y, ticker_X]
+        signals = signals.loc[oos_data.index.intersection(signals.index)]
+        regimes_slice = regime_series.loc[oos_data.index.intersection(regime_series.index)]
     
         # Attach metrics to signals for enhanced trade logging
         metrics_row = metrics_df[metrics_df['pair'] == pair]
@@ -291,7 +325,7 @@ def main(config_path="config.yaml"):
         backtest = PairsBacktest(config)
         backtest.prices = prices
         backtest.signals = {pair: signals}  # For exit z-score logging
-        backtest.run_backtest(prices, {pair: signals}, regime_series)
+        backtest.run_backtest(prices, {pair: signals}, regimes_slice)
         metrics = backtest.get_performance_metrics()
         pair_results.append({'pair': pair, 'metrics': metrics, 'backtest': backtest})
         logger.info(f"Metrics for {ticker_y}-{ticker_X}: {metrics}")

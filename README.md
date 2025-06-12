@@ -113,6 +113,14 @@ PAIR_PARAMS:
     exit_threshold: 0.6
 ```
 
+## Train/Test Split
+
+Historical data is split into training and out-of-sample (OOS) segments based on
+the `TRAIN_SPLIT` value in `config.yaml` (default `0.7`). Pair selection and all
+model fitting use the training portion while the backtest runs only on the OOS
+period. The performance metrics reported therefore reflect purely out-of-sample
+results.
+
 ## Pair Scoring
 
 Pairs are ranked using four metrics:
