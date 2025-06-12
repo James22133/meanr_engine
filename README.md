@@ -97,14 +97,19 @@ This script adds the project root to `PYTHONPATH` before invoking `pytest`.
 
 ## Configuration
 
-Key parameters can be adjusted in `run_engine.py`:
-- ETF tickers
-- Date range
-- Cointegration window
-- Z-score thresholds
-- TOP_N_PAIRS (number of highest scoring pairs to trade)
-- Regime detection parameters
-- Backtest configuration
+All parameters are stored in `config.yaml`, which is read at runtime by
+`config.load_config()`. Edit this file to tweak tickers, thresholds and other
+settings.
+
+Example snippet:
+
+```yaml
+ETF_TICKERS: ["XOM", "CVX"]
+PAIR_PARAMS:
+  XOM_CVX:
+    entry_threshold: 1.8
+    exit_threshold: 0.6
+```
 
 ## Pair Scoring
 
@@ -119,7 +124,7 @@ Each metric is min-max normalized across all candidate pairs. The final score is
 `1 - mean(normalized metrics)` so that lower p-values or lower Hurst values
 (indicating stronger mean reversion) lead to higher scores. The `TOP_N_PAIRS`
 parameter defines how many of the highest scoring pairs are kept for signal
-generation and backtesting. Increase this value in `run_engine.py` to consider
+generation and backtesting. Increase this value in `config.yaml` to consider
 more pairs or reduce it to focus on fewer.
 
 These relaxed statistical metrics are now used for scoring rather than strict
