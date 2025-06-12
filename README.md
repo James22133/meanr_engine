@@ -40,6 +40,9 @@ source venv/bin/activate  # On Windows: .\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+The list includes core packages such as `hmmlearn` and `pykalman` which are
+required for regime detection and Kalman filtering.
+
 ## Usage
 
 Run the main engine:
@@ -75,11 +78,14 @@ meanr_engine/
 
 ## Running Tests
 
-Install the project dependencies if you have not already:
+Before running the tests, ensure all dependencies are installed:
 
 ```bash
 pip install -r requirements.txt
 ```
+
+Running `pytest` or the helper script without these packages (e.g. `hmmlearn`,
+`pykalman`) will result in import errors.
 
 Then execute the bundled test runner from the repository root:
 
