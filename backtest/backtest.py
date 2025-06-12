@@ -24,6 +24,13 @@ class Trade:
     size: float  # Position size in dollars
     pnl: Optional[float]
     exit_reason: Optional[str]  # 'take_profit', 'stop_loss', 'signal'
+    entry_zscore: Optional[float] = None
+    exit_zscore: Optional[float] = None
+    entry_spread_vol: Optional[float] = None
+    entry_coint_p: Optional[float] = None
+    entry_adf_p: Optional[float] = None
+    entry_hurst: Optional[float] = None
+    entry_regime: Optional[int] = None
 
 @dataclass
 class BacktestConfig:
@@ -32,7 +39,7 @@ class BacktestConfig:
     target_volatility: float = 0.10  # 10% annualized
     slippage_bps: float = 2.0
     commission_bps: float = 1.0
-    stop_loss_std: float = 2.0
+    stop_loss_k: float = 2.0  # Multiplier for volatility-based stop-loss
     zscore_entry_threshold: float = 2.0
     zscore_exit_threshold: float = 0.1
 
@@ -50,32 +57,22 @@ class PairsBacktest:
         prices: pd.DataFrame,
         pair: Tuple[str, str],
         date: datetime,
+        spread_series: Optional[pd.Series] = None
     ) -> float:
-        """Calculate volatility-scaled position size for a pair up to a given date."""
+        """Calculate volatility-scaled position size for a pair up to a given date using spread volatility."""
         asset1, asset2 = pair
-        returns1 = prices[asset1].pct_change()
-        returns2 = prices[asset2].pct_change()
-
-        # Calculate pair volatility (20-day rolling)
-        pair_vol = (returns1 - returns2).rolling(20).std() * np.sqrt(252)
-
-        if date not in pair_vol.index:
-            logger.warning(f"Date {date} not found for pair {pair}")
+        if spread_series is None:
+            spread_series = prices[asset1] - prices[asset2]
+        spread_vol = spread_series.rolling(20).std()
+        if date not in spread_vol.index:
+            logger.warning(f"Date {date} not found for pair {pair} spread volatility")
             return 0
-
-        current_vol = pair_vol.loc[:date].iloc[-1]
-
-        if pd.isna(current_vol):
-            logger.warning(f"Volatility is NaN for pair {pair} on {date}")
+        current_vol = spread_vol.loc[:date].iloc[-1]
+        if pd.isna(current_vol) or current_vol == 0:
+            logger.warning(f"Spread volatility is NaN/zero for pair {pair} on {date}")
             return 0
-
-        if current_vol == 0:
-            logger.warning(f"Zero volatility detected for pair {pair} on {date}")
-            return 0
-
-        # Scale position size to target volatility
-        position_size = (self.config.initial_capital * self.config.target_volatility) / current_vol
-        return position_size / 2  # Divide by 2 for dollar-neutral (equal long/short)
+        position_size = (self.config.initial_capital * self.config.target_volatility) / float(current_vol)
+        return float(position_size) / 2  # Dollar-neutral
     
     def calculate_trade_pnl(
         self,
@@ -173,14 +170,21 @@ class PairsBacktest:
     ) -> None:
         """Open a new position."""
         asset1, asset2 = pair
-        size = self.calculate_position_size(prices, pair, date)
-        
+        # Use z-score and spread volatility from signal if available
+        entry_zscore = signal.get('z_score', None)
+        entry_regime = signal.get('regime', None)
+        # Assume spread is asset1 - asset2
+        spread_series = prices[asset1] - prices[asset2]
+        entry_spread_vol = spread_series.rolling(20).std().loc[:date].iloc[-1] if date in spread_series.index else None
+        # These should be passed in or looked up from metrics if available
+        entry_coint_p = signal.get('coint_p', None)
+        entry_adf_p = signal.get('adf_p', None)
+        entry_hurst = signal.get('hurst', None)
+        size = self.calculate_position_size(prices, pair, date, spread_series)
         if size == 0:
             logger.warning(f"Skipping trade for {pair} due to zero position size")
             return
-            
         direction = 'long' if signal['entry_long'] else 'short'
-        
         trade = Trade(
             entry_date=date,
             exit_date=None,
@@ -193,12 +197,17 @@ class PairsBacktest:
             exit_price2=None,
             size=size,
             pnl=None,
-            exit_reason=None
+            exit_reason=None,
+            entry_zscore=entry_zscore,
+            entry_spread_vol=entry_spread_vol,
+            entry_coint_p=entry_coint_p,
+            entry_adf_p=entry_adf_p,
+            entry_hurst=entry_hurst,
+            entry_regime=entry_regime
         )
-        
         self.positions[pair] = trade
         self.trades.append(trade)
-        logger.info(f"Opened {direction} position in {pair} at {date}")
+        logger.info(f"Opened {direction} position in {pair} at {date} | z={entry_zscore:.3f} vol={entry_spread_vol:.3f} coint_p={entry_coint_p} adf_p={entry_adf_p} hurst={entry_hurst} regime={entry_regime}")
     
     def _close_position(self,
                        pair: Tuple[str, str],
@@ -211,6 +220,12 @@ class PairsBacktest:
         trade.exit_price1 = prices[trade.asset1]
         trade.exit_price2 = prices[trade.asset2]
         trade.exit_reason = reason
+        # Log exit z-score if available
+        if hasattr(self, 'prices') and hasattr(self, 'signals'):
+            try:
+                trade.exit_zscore = self.signals[pair].loc[date, 'z_score']
+            except Exception:
+                trade.exit_zscore = None
         trade.pnl = self.calculate_trade_pnl(trade)
 
         # Record realized P&L for the day
@@ -226,11 +241,11 @@ class PairsBacktest:
 
         if idx is not None and idx > 0:
             prev_date = self.equity_curve.index[idx - 1]
-            base_equity = self.equity_curve.loc[prev_date]
+            base_equity = float(self.equity_curve.loc[prev_date])
         else:
-            base_equity = self.config.initial_capital
+            base_equity = float(self.config.initial_capital)
 
-        self.equity_curve.loc[date] = base_equity + daily_total_pnl
+        self.equity_curve.loc[date] = float(base_equity + daily_total_pnl)
 
         del self.positions[pair]
         logger.info(
@@ -285,7 +300,7 @@ class PairsBacktest:
         }
     
     def save_trades_to_csv(self, filename: str) -> None:
-        """Save trade history to CSV file."""
+        """Save trade history to CSV file with enhanced fields."""
         trades_df = pd.DataFrame([{
             'entry_date': t.entry_date,
             'exit_date': t.exit_date,
@@ -298,39 +313,47 @@ class PairsBacktest:
             'exit_price1': t.exit_price1,
             'exit_price2': t.exit_price2,
             'pnl': t.pnl,
-            'exit_reason': t.exit_reason
+            'exit_reason': t.exit_reason,
+            'entry_zscore': t.entry_zscore,
+            'exit_zscore': t.exit_zscore,
+            'entry_spread_vol': t.entry_spread_vol,
+            'entry_coint_p': t.entry_coint_p,
+            'entry_adf_p': t.entry_adf_p,
+            'entry_hurst': t.entry_hurst,
+            'entry_regime': t.entry_regime
         } for t in self.trades])
-        
         trades_df.to_csv(filename, index=False)
         logger.info(f"Saved trade history to {filename}")
 
     def _update_positions(self, date: datetime, prices: pd.Series) -> None:
         """Update existing positions, check stop-losses, and calculate P&L."""
         positions_to_close = []
-        
         for pair, trade in self.positions.items():
-            if trade.exit_date is not None:  # Skip already closed positions
+            if trade.exit_date is not None:
                 continue
-            
-            # Check stop-loss
+            # Volatility-based stop-loss
+            spread = self.prices.loc[date, trade.asset1] - self.prices.loc[date, trade.asset2]
+            spread_series = self.prices[trade.asset1] - self.prices[trade.asset2]
+            spread_vol = spread_series.rolling(20).std().loc[:date].iloc[-1] if date in spread_series.index else None
+            if spread_vol is None or pd.isna(spread_vol):
+                continue
+            k = getattr(self.config, 'stop_loss_k', 2.0)
+            stop_loss_long = trade.entry_price1 - trade.entry_price2 - k * spread_vol
+            stop_loss_short = trade.entry_price1 - trade.entry_price2 + k * spread_vol
             if trade.direction == 'long':
-                stop_loss = trade.entry_price1 * (1 - self.config.stop_loss_std * 0.01)
-                if prices[trade.asset1] <= stop_loss:
+                if spread <= stop_loss_long:
                     positions_to_close.append((pair, 'stop_loss'))
             else:  # short position
-                stop_loss = trade.entry_price1 * (1 + self.config.stop_loss_std * 0.01)
-                if prices[trade.asset1] >= stop_loss:
+                if spread >= stop_loss_short:
                     positions_to_close.append((pair, 'stop_loss'))
-        
         # Close positions that hit stop-loss
         for pair, reason in positions_to_close:
             self._close_position(pair, date, prices, reason)
-            
         # Update daily P&L including realized gains from closed trades
         idx = self.equity_curve.index.get_loc(date)
         daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
         if idx > 0:
             prev_date = self.equity_curve.index[idx - 1]
-            self.equity_curve.loc[date] = self.equity_curve.loc[prev_date] + daily_pnl
+            self.equity_curve.loc[date] = float(self.equity_curve.loc[prev_date]) + float(daily_pnl)
         else:
-            self.equity_curve.loc[date] = self.config.initial_capital + daily_pnl
+            self.equity_curve.loc[date] = float(self.config.initial_capital) + float(daily_pnl)

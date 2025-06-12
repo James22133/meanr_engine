@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +24,10 @@ from backtest import (
 )
 
 # --- Configuration ---
-ETF_TICKERS = ["SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF"]
+ETF_TICKERS = [
+    "SPY", "QQQ", "IWM", "EFA", "EMB", "GLD", "SLV", "USO", "TLT", "IEF",
+    "XOM", "CVX", "SLB", "HAL", "MPC", "VLO", "COP", "EOG", "DVN", "ET", "EPD", "OXY", "MRO"
+]
 START_DATE = "2020-01-01"
 END_DATE = "2023-01-01"
 COINTEGRATION_WINDOW = 90  # days
@@ -31,7 +35,7 @@ COINTEGRATION_WINDOW = 90  # days
 # Pairs with higher values will be ignored.
 COINTEGRATION_PVALUE_THRESHOLD = 0.2
 ZSCORE_WINDOW = 20  # days for rolling mean/std of spread
-HMM_N_COMPONENTS = 2 # Number of market regimes
+HMM_N_COMPONENTS = 3 # Number of market regimes (increased from 2 to 3)
 REGIME_VOLATILITY_WINDOW = 20 # days for calculating volatility feature for HMM
 # Define the "stable" regime - this will need to be determined empirically
 # after training the HMM. For now, let's assume regime 0 is stable.
@@ -40,12 +44,38 @@ STABLE_REGIME_INDEX = 0
 # --- Enhancement: Top-N Pair Selection Parameter ---
 TOP_N_PAIRS = 5
 
+# --- Optional: Sector Filtering and Manual Pair List ---
+SECTOR_FILTER_ENABLED = True
+SECTOR_MAP = {
+    'XOM': 'Energy', 'CVX': 'Energy', 'SLB': 'Energy', 'HAL': 'Energy',
+    'MPC': 'Energy', 'VLO': 'Energy', 'COP': 'Energy', 'EOG': 'Energy',
+    'DVN': 'Energy', 'ET': 'Energy', 'EPD': 'Energy', 'OXY': 'Energy', 'MRO': 'Energy'
+}
+MANUAL_PAIR_LIST = [
+    ('XOM', 'CVX'),
+    ('SLB', 'HAL'),
+    ('MPC', 'VLO'),
+    ('COP', 'XOM'),
+    ('EOG', 'DVN'),
+    ('ET', 'EPD'),
+    ('OXY', 'MRO'),
+]
+PAIR_PARAMS = {
+    ('XOM', 'CVX'): {'entry_threshold': 1.8, 'exit_threshold': 0.5, 'stop_loss_k': 2.0},
+    ('SLB', 'HAL'): {'entry_threshold': 2.0, 'exit_threshold': 0.7, 'stop_loss_k': 1.5},
+    ('MPC', 'VLO'): {'entry_threshold': 1.9, 'exit_threshold': 0.6, 'stop_loss_k': 2.2},
+    ('COP', 'XOM'): {'entry_threshold': 2.1, 'exit_threshold': 0.5, 'stop_loss_k': 1.8},
+    ('EOG', 'DVN'): {'entry_threshold': 2.0, 'exit_threshold': 0.7, 'stop_loss_k': 2.0},
+    ('ET', 'EPD'): {'entry_threshold': 1.7, 'exit_threshold': 0.5, 'stop_loss_k': 1.6},
+    ('OXY', 'MRO'): {'entry_threshold': 2.2, 'exit_threshold': 0.8, 'stop_loss_k': 2.1},
+}
+
 # --- Enhancement: Composite Scoring Function ---
 def compute_pair_score(coint_p, hurst, adf_p, zscore_vol):
-    """Return a simple average-based score (lower metrics yield higher score)."""
-    metrics = np.array([coint_p, hurst, adf_p, zscore_vol])
-    metrics = np.where(np.isnan(metrics), 1.0, metrics)
-    return 1 - metrics.mean()
+    """Composite score: penalize high zscore_vol, reward low coint_p and high Hurst."""
+    # Lower coint_p, higher hurst, lower adf_p, lower zscore_vol are better
+    score = (1 - coint_p) * 0.4 + hurst * 0.3 + (1 - adf_p) * 0.1 + (1 - zscore_vol / (zscore_vol + 1e-6)) * 0.2
+    return score
 
 
 def compute_pair_scores(df: pd.DataFrame) -> pd.DataFrame:
@@ -75,21 +105,38 @@ logger.info("Available tickers: %s", data.columns.tolist())
 
 # --- Market Regime Detection ---
 logger.info("Detecting market regimes...")
-# Use the average volatility across all assets as a market-wide feature
+# Use volatility, rolling beta, and spread entropy as features
 asset_volatilities = data.apply(calculate_volatility, axis=0, window=REGIME_VOLATILITY_WINDOW)
 market_volatility = asset_volatilities.mean(axis=1).dropna()
 
-if not market_volatility.empty:
-    hmm_model = train_hmm(market_volatility)
-    regimes = predict_regimes(hmm_model, market_volatility)
-    # Align regimes with the data index
-    regime_series = pd.Series(regimes, index=market_volatility.index)
+# Calculate rolling beta (first two ETFs as example)
+def rolling_beta(y, x, window=20):
+    return y.rolling(window).cov(x) / x.rolling(window).var()
+if len(data.columns) >= 2:
+    beta = rolling_beta(data[data.columns[0]], data[data.columns[1]], window=20)
+else:
+    beta = pd.Series(index=data.index, data=0.0)
+
+# Calculate spread entropy (as rolling std of spread)
+def rolling_entropy(y, x, window=20):
+    spread = y - x
+    return spread.rolling(window).std()
+if len(data.columns) >= 2:
+    entropy = rolling_entropy(data[data.columns[0]], data[data.columns[1]], window=20)
+else:
+    entropy = pd.Series(index=data.index, data=0.0)
+
+hmm_features = pd.DataFrame({
+    'volatility': market_volatility,
+    'beta': beta,
+    'entropy': entropy
+}).dropna()
+
+if not hmm_features.empty:
+    hmm_model = train_hmm(hmm_features, n_components=HMM_N_COMPONENTS)
+    regimes = predict_regimes(hmm_model, hmm_features)
+    regime_series = pd.Series(regimes, index=hmm_features.index)
     logger.info("Market regimes detected.")
-
-    # Optional: Analyze predicted regimes and their characteristics (e.g., mean volatility in each regime)
-    # mean_vol_per_regime = market_volatility.groupby(regime_series).mean()
-    # print("Mean volatility per regime:", mean_vol_per_regime)
-
 else:
     logger.warning("Not enough data to calculate market volatility and train HMM. Skipping regime detection.")
     regime_series = pd.Series(index=data.index, data=STABLE_REGIME_INDEX) # Assume stable if no HMM
@@ -98,63 +145,59 @@ else:
 logger.info("Performing pairs analysis and generating signals...")
 pairs_data = {}
 metrics_list = []
-# Iterate through all unique pairs
-for i in range(len(data.columns)):
-    for j in range(i + 1, len(data.columns)):
-        asset1_ticker = data.columns[i]
-        asset2_ticker = data.columns[j]
-        logger.info(f"Analyzing pair: {asset1_ticker} and {asset2_ticker}")
 
-        price_y = data[asset1_ticker]
-        price_X = data[asset2_ticker]
+# --- Use manual pair list if provided ---
+if MANUAL_PAIR_LIST:
+    pair_iter = MANUAL_PAIR_LIST
+else:
+    from itertools import combinations
+    pair_iter = list(combinations(data.columns, 2))
 
-        # Ensure price series are aligned and have enough data
-        aligned_prices = pd.concat([price_y, price_X], axis=1).dropna()
-        if len(aligned_prices) < 80:  # 60 for rolling coint, 20 for zscore
-            logger.info(f"Skipping pair {asset1_ticker}-{asset2_ticker}: Not enough data.")
-            continue
-
-        price_y_aligned = aligned_prices.iloc[:, 0]
-        price_X_aligned = aligned_prices.iloc[:, 1]
-
-        # --- Enhancement: Rolling Cointegration ---
-        rolling_coint_pvals = rolling_cointegration(price_y_aligned, price_X_aligned, window=60)
-        last_coint_p = rolling_coint_pvals.dropna().iloc[-1] if not rolling_coint_pvals.dropna().empty else 1.0
-
-        # --- Enhancement: Kalman Filter ---
-        kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
-
-        # --- Enhancement: Spread, Rolling Hurst, and Rolling ADF Filters ---
-        spread = price_y_aligned - pd.Series(kf_states[:, 1], index=price_X_aligned.index) * price_X_aligned
-        rolling_hurst_vals = rolling_hurst(spread.dropna(), window=60)
-        rolling_adf_vals = rolling_adf(spread.dropna(), window=60)
-        last_hurst = rolling_hurst_vals.dropna().iloc[-1] if not rolling_hurst_vals.dropna().empty else 1.0
-        last_adf_p = rolling_adf_vals.dropna().iloc[-1] if not rolling_adf_vals.dropna().empty else 1.0
-        # --- Enhancement: Z-score Volatility ---
-        z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states, rolling_window=ZSCORE_WINDOW)
-        zscore_vol = z_score.rolling(60).std().dropna().iloc[-1] if z_score.rolling(60).std().dropna().size > 0 else 1.0
-
-        # --- Enhancement: Composite Score ---
-        score = compute_pair_score(last_coint_p, last_hurst, last_adf_p, zscore_vol)
-        logger.info(
-            f"Pair {asset1_ticker}-{asset2_ticker}: coint_p={last_coint_p:.3f}, hurst={last_hurst:.3f}, adf_p={last_adf_p:.3f}, zscore_vol={zscore_vol:.3f}, score={score:.3f}"
-        )
-        metrics_list.append({
-            'pair': (asset1_ticker, asset2_ticker),
-            'coint_p': last_coint_p,
-            'hurst': last_hurst,
-            'adf_p': last_adf_p,
-            'zscore_vol': zscore_vol,
-            'z_score': z_score,
-            'kalman_states': kf_states,
-            'rolling_hurst': rolling_hurst_vals,
-            'rolling_adf': rolling_adf_vals,
-            'rolling_coint_pvals': rolling_coint_pvals
-        })
+for pair in pair_iter:
+    asset1_ticker, asset2_ticker = pair
+    # Sector filter: skip if not both in Energy
+    if SECTOR_FILTER_ENABLED and (SECTOR_MAP.get(asset1_ticker) != 'Energy' or SECTOR_MAP.get(asset2_ticker) != 'Energy'):
+        continue
+    if asset1_ticker not in data.columns or asset2_ticker not in data.columns:
+        continue
+    logger.info(f"Analyzing pair: {asset1_ticker} and {asset2_ticker}")
+    price_y = data[asset1_ticker]
+    price_X = data[asset2_ticker]
+    aligned_prices = pd.concat([price_y, price_X], axis=1).dropna()
+    if len(aligned_prices) < 80:
+        logger.info(f"Skipping pair {asset1_ticker}-{asset2_ticker}: Not enough data.")
+        continue
+    price_y_aligned = aligned_prices.iloc[:, 0]
+    price_X_aligned = aligned_prices.iloc[:, 1]
+    rolling_coint_pvals = rolling_cointegration(price_y_aligned, price_X_aligned, window=60)
+    last_coint_p = rolling_coint_pvals.dropna().iloc[-1] if not rolling_coint_pvals.dropna().empty else 1.0
+    kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
+    spread = price_y_aligned - pd.Series(kf_states[:, 1], index=price_X_aligned.index) * price_X_aligned
+    rolling_hurst_vals = rolling_hurst(spread.dropna(), window=60)
+    rolling_adf_vals = rolling_adf(spread.dropna(), window=60)
+    last_hurst = rolling_hurst_vals.dropna().iloc[-1] if not rolling_hurst_vals.dropna().empty else 1.0
+    last_adf_p = rolling_adf_vals.dropna().iloc[-1] if not rolling_adf_vals.dropna().empty else 1.0
+    z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states, rolling_window=ZSCORE_WINDOW)
+    zscore_vol = z_score.rolling(60).std().dropna().iloc[-1] if z_score.rolling(60).std().dropna().size > 0 else 1.0
+    score = compute_pair_score(last_coint_p, last_hurst, last_adf_p, zscore_vol)
+    logger.info(
+        f"Pair {asset1_ticker}-{asset2_ticker}: coint_p={last_coint_p:.3f}, hurst={last_hurst:.3f}, adf_p={last_adf_p:.3f}, zscore_vol={zscore_vol:.3f}, score={score:.3f}"
+    )
+    metrics_list.append({
+        'pair': (asset1_ticker, asset2_ticker),
+        'coint_p': last_coint_p,
+        'hurst': last_hurst,
+        'adf_p': last_adf_p,
+        'zscore_vol': zscore_vol,
+        'z_score': z_score,
+        'kalman_states': kf_states,
+        'rolling_hurst': rolling_hurst_vals,
+        'rolling_adf': rolling_adf_vals,
+        'rolling_coint_pvals': rolling_coint_pvals
+    })
 
 # --- Enhancement: Top-N Pair Selection ---
 metrics_df = pd.DataFrame(metrics_list)
-# Exclude pairs that do not meet the cointegration p-value requirement
 metrics_df = metrics_df[metrics_df['coint_p'] <= COINTEGRATION_PVALUE_THRESHOLD]
 metrics_df = compute_pair_scores(metrics_df)
 metrics_df = metrics_df.sort_values("score", ascending=False)
@@ -181,41 +224,33 @@ trade_signals = {}
 for pair, pair_data in pairs_data.items():
     asset1_ticker, asset2_ticker = pair
     z_score = pair_data['z_score']
-
+    # Per-pair parameter overrides
+    params = PAIR_PARAMS.get(pair, {})
+    entry_threshold = params.get('entry_threshold', 2.0)
+    exit_threshold = params.get('exit_threshold', 0.1)
+    stop_loss_k = params.get('stop_loss_k', 2.0)
     # Align Z-score with the regime series index
     aligned_z_score, aligned_regimes = z_score.align(regime_series, join='inner')
-
-    # --- Enhancement: Empirical Regime-Adaptive Z-Score Entry Thresholds ---
-    abs_z = aligned_z_score.abs()
+    dynamic_threshold = entry_threshold if not isinstance(entry_threshold, dict) else entry_threshold.get('default', 2.0)
     stable_mask = aligned_regimes == STABLE_REGIME_INDEX
     unstable_mask = aligned_regimes != STABLE_REGIME_INDEX
-    # Compute percentiles empirically
-    stable_thresh = np.percentile(abs_z[stable_mask].dropna(), 90) if abs_z[stable_mask].dropna().size > 0 else 1.8
-    unstable_thresh = np.percentile(abs_z[unstable_mask].dropna(), 95) if abs_z[unstable_mask].dropna().size > 0 else 2.5
-    entry_short = ((stable_mask) & (aligned_z_score > stable_thresh)) | \
-                  ((unstable_mask) & (aligned_z_score > unstable_thresh))
-    entry_long = ((stable_mask) & (aligned_z_score < -stable_thresh)) | \
-                 ((unstable_mask) & (aligned_z_score < -unstable_thresh))
-    exit_signal = abs(aligned_z_score) < 0.1 # Close to zero
-
-    # Apply Regime Filter: Only trade in the stable regime (for entry)
+    entry_short = ((stable_mask) & (aligned_z_score > dynamic_threshold)) | \
+                  ((unstable_mask) & (aligned_z_score > dynamic_threshold))
+    entry_long = ((stable_mask) & (aligned_z_score < -dynamic_threshold)) | \
+                 ((unstable_mask) & (aligned_z_score < -dynamic_threshold))
+    exit_signal = abs(aligned_z_score) < exit_threshold
     can_trade = (aligned_regimes == STABLE_REGIME_INDEX)
-
-    # Filtered signals: only trigger if can_trade is True
     filtered_entry_short = entry_short & can_trade
     filtered_entry_long = entry_long & can_trade
-    # Exits should happen regardless of regime to close positions
     filtered_exit = exit_signal
-
-    # Combine signals for plotting/analysis
     signals = pd.DataFrame({
         'z_score': aligned_z_score,
         'regime': aligned_regimes,
         'entry_short': filtered_entry_short,
         'entry_long': filtered_entry_long,
-        'exit': filtered_exit
+        'exit': filtered_exit,
+        'stop_loss_k': stop_loss_k
     }, index=aligned_z_score.index)
-
     trade_signals[pair] = signals
 
 logger.info("Regime-filtered signals generated.")
@@ -227,7 +262,7 @@ config = BacktestConfig(
     target_volatility=0.10,
     slippage_bps=2.0,
     commission_bps=1.0,
-    stop_loss_std=2.0,
+    stop_loss_k=2.0,
     zscore_entry_threshold=2.0,
     zscore_exit_threshold=0.1
 )
@@ -243,8 +278,23 @@ for pair, signals in trade_signals.items():
     prices = data.loc[:, [ticker_y, ticker_X]].dropna()
     prices.columns = [ticker_y, ticker_X]
 
+    # Attach metrics to signals for enhanced trade logging
+    metrics_row = metrics_df[metrics_df['pair'] == pair]
+    if not metrics_row.empty:
+        coint_p = float(metrics_row['coint_p'].iloc[0])
+        adf_p = float(metrics_row['adf_p'].iloc[0])
+        hurst = float(metrics_row['hurst'].iloc[0])
+    else:
+        coint_p = adf_p = hurst = None
+    # Add these to the signals DataFrame for each date
+    signals = signals.copy()
+    signals['coint_p'] = coint_p
+    signals['adf_p'] = adf_p
+    signals['hurst'] = hurst
+
     backtest = PairsBacktest(config)
     backtest.prices = prices
+    backtest.signals = {pair: signals}  # For exit z-score logging
     backtest.run_backtest(prices, {pair: signals}, regime_series)
     metrics = backtest.get_performance_metrics()
     pair_results.append({'pair': pair, 'metrics': metrics, 'backtest': backtest})
@@ -306,9 +356,17 @@ logger.debug(combined_daily_returns.head(10))
 # --- Generate Performance Reports ---
 logger.info("Generating performance reports...")
 
+# Clean equity curve: fill NaN if any
+combined_equity_curve = combined_equity_curve.astype(float)
+if combined_equity_curve.isnull().any():
+    combined_equity_curve = combined_equity_curve.ffill().bfill()
+
 # Calculate drawdown on combined equity
-cummax = combined_equity_curve.cummax()
-drawdown = (combined_equity_curve - cummax) / cummax
+if not combined_equity_curve.empty and combined_equity_curve.notnull().all():
+    rolling_max = combined_equity_curve.cummax()
+    drawdown = (combined_equity_curve - rolling_max) / rolling_max
+else:
+    drawdown = pd.Series(index=combined_equity_curve.index, data=np.nan)
 
 # Plot equity curve and drawdown
 plot_equity_curve(combined_equity_curve, drawdown)
@@ -348,6 +406,21 @@ plot_performance_metrics(metrics)
 # Save trade history
 trades_df = pd.DataFrame([vars(t) for t in all_trades])
 trades_df.to_csv('trade_history.csv', index=False)
+
+# --- Detailed Analytics Output ---
+analytics = {}
+analytics['total_net_pnl'] = float(trades_df['pnl'].sum())
+analytics['average_pnl'] = float(trades_df['pnl'].mean())
+analytics['average_pnl_long'] = float(trades_df[trades_df['direction'] == 'long']['pnl'].mean()) if not trades_df[trades_df['direction'] == 'long'].empty else None
+analytics['average_pnl_short'] = float(trades_df[trades_df['direction'] == 'short']['pnl'].mean()) if not trades_df[trades_df['direction'] == 'short'].empty else None
+analytics['win_rate'] = float((trades_df['pnl'] > 0).mean())
+analytics['pnl_std'] = float(trades_df['pnl'].std())
+analytics['sharpe_ratio'] = float(sharpe_ratio)
+analytics['equity_curve'] = combined_equity_curve.dropna().astype(float).to_dict()
+analytics['trade_pnl_histogram'] = np.histogram(trades_df['pnl'].dropna(), bins=20)[0].tolist()
+with open('backtest_analytics.json', 'w') as f:
+    json.dump(analytics, f, indent=2)
+logger.info("\nAnalytics saved to backtest_analytics.json")
 
 logger.info("\nBacktest complete. Performance metrics:")
 for metric, value in metrics.items():
