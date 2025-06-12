@@ -500,11 +500,6 @@ if __name__ == "__main__":
         default="config.yaml",
         help="Path to configuration file",
     )
-    parser.add_argument(
-        "--live",
-        action="store_true",
-        help="Run in live trading mode",
-    )
     args = parser.parse_args()
     main(args.config)
 

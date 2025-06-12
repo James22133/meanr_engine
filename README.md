@@ -53,7 +53,6 @@ python run_engine.py --config config.yaml
 Optional flags include:
 
 - `--config PATH` - path to the configuration file (defaults to `config.yaml`)
-- `--live` - enable live trading mode (placeholder)
 
 Running the engine will:
 1. Fetch ETF data
