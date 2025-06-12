@@ -31,6 +31,7 @@ class Trade:
     entry_adf_p: Optional[float] = None
     entry_hurst: Optional[float] = None
     entry_regime: Optional[int] = None
+    stop_loss_k: float = 2.0
 
 @dataclass
 class BacktestConfig:
@@ -180,6 +181,7 @@ class PairsBacktest:
         entry_coint_p = signal.get('coint_p', None)
         entry_adf_p = signal.get('adf_p', None)
         entry_hurst = signal.get('hurst', None)
+        stop_loss_k = signal.get('stop_loss_k', getattr(self.config, 'stop_loss_k', 2.0))
         size = self.calculate_position_size(prices, pair, date, spread_series)
         if size == 0:
             logger.warning(f"Skipping trade for {pair} due to zero position size")
@@ -203,7 +205,8 @@ class PairsBacktest:
             entry_coint_p=entry_coint_p,
             entry_adf_p=entry_adf_p,
             entry_hurst=entry_hurst,
-            entry_regime=entry_regime
+            entry_regime=entry_regime,
+            stop_loss_k=stop_loss_k
         )
         self.positions[pair] = trade
         self.trades.append(trade)
@@ -320,7 +323,8 @@ class PairsBacktest:
             'entry_coint_p': t.entry_coint_p,
             'entry_adf_p': t.entry_adf_p,
             'entry_hurst': t.entry_hurst,
-            'entry_regime': t.entry_regime
+            'entry_regime': t.entry_regime,
+            'stop_loss_k': t.stop_loss_k
         } for t in self.trades])
         trades_df.to_csv(filename, index=False)
         logger.info(f"Saved trade history to {filename}")
@@ -337,7 +341,7 @@ class PairsBacktest:
             spread_vol = spread_series.rolling(20).std().loc[:date].iloc[-1] if date in spread_series.index else None
             if spread_vol is None or pd.isna(spread_vol):
                 continue
-            k = getattr(self.config, 'stop_loss_k', 2.0)
+            k = getattr(trade, 'stop_loss_k', getattr(self.config, 'stop_loss_k', 2.0))
             stop_loss_long = trade.entry_price1 - trade.entry_price2 - k * spread_vol
             stop_loss_short = trade.entry_price1 - trade.entry_price2 + k * spread_vol
             if trade.direction == 'long':
