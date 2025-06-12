@@ -210,7 +210,18 @@ class PairsBacktest:
         )
         self.positions[pair] = trade
         self.trades.append(trade)
-        logger.info(f"Opened {direction} position in {pair} at {date} | z={entry_zscore:.3f} vol={entry_spread_vol:.3f} coint_p={entry_coint_p} adf_p={entry_adf_p} hurst={entry_hurst} regime={entry_regime}")
+        logger.info(
+            "Opened %s position in %s at %s | z=%s vol=%s coint_p=%s adf_p=%s hurst=%s regime=%s",
+            direction,
+            pair,
+            date,
+            f"{entry_zscore:.3f}" if entry_zscore is not None else "NA",
+            f"{entry_spread_vol:.3f}" if entry_spread_vol is not None else "NA",
+            entry_coint_p,
+            entry_adf_p,
+            entry_hurst,
+            entry_regime,
+        )
     
     def _close_position(self,
                        pair: Tuple[str, str],
