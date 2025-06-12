@@ -13,4 +13,5 @@ pyyaml>=6.0
 # Additional useful libraries
 scikit-learn>=1.0.0  # For machine learning models and feature engineering
 ta>=0.10.0  # Technical analysis indicators (pure Python implementation)
-tqdm>=4.65.0  # Progress bars for long-running operations 
+tqdm>=4.65.0  # Progress bars for long-running operations
+pytest>=8.0  # Required for running the test suite
