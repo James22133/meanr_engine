@@ -25,7 +25,7 @@ from optimization import grid_search
 
 # --- Enhancement: Composite Scoring Function ---
 def compute_pair_score(coint_p, hurst, adf_p, zscore_vol):
-    """Return ``1 - np.nanmean`` of the provided metrics.
+    """Return ``1 - mean`` of the provided metrics with NaNs treated as ``1.0``.
 
     Parameters
     ----------
@@ -42,11 +42,12 @@ def compute_pair_score(coint_p, hurst, adf_p, zscore_vol):
     -------
     float
         Composite score where lower metric values yield higher scores. ``NaN``
-        values are ignored via ``np.nanmean``.
+        values are replaced with ``1.0`` before averaging.
     """
 
-    values = [coint_p, hurst, adf_p, zscore_vol]
-    score = 1 - np.nanmean(values)
+    inputs = [coint_p, hurst, adf_p, zscore_vol]
+    normalized = [1.0 if pd.isna(x) else x for x in inputs]
+    score = 1 - np.mean(normalized)
     return score
 
 
