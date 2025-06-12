@@ -195,13 +195,19 @@ def main(config_path="config.yaml"):
     
     # --- Enhancement: Top-N Pair Selection ---
     metrics_df = pd.DataFrame(metrics_list)
-    metrics_df = metrics_df[metrics_df['coint_p'] <= COINTEGRATION_PVALUE_THRESHOLD]
-    metrics_df = compute_pair_scores(metrics_df)
-    metrics_df = metrics_df.sort_values("score", ascending=False)
-    top_pairs = metrics_df.head(TOP_N_PAIRS)
-    if top_pairs.empty:
-        logger.warning("No pairs meet the cointegration p-value threshold.")
-    logger.info(f"Top {TOP_N_PAIRS} pairs selected: {top_pairs['pair'].tolist()}")
+
+    if metrics_df.empty:
+        logger.warning("Metrics dataframe is empty. Skipping pair selection.")
+        top_pairs = pd.DataFrame()
+    else:
+        metrics_df = metrics_df[metrics_df['coint_p'] <= COINTEGRATION_PVALUE_THRESHOLD]
+        metrics_df = compute_pair_scores(metrics_df)
+        metrics_df = metrics_df.sort_values("score", ascending=False)
+        top_pairs = metrics_df.head(TOP_N_PAIRS)
+        if top_pairs.empty:
+            logger.warning("No pairs meet the cointegration p-value threshold.")
+
+        logger.info(f"Top {TOP_N_PAIRS} pairs selected: {top_pairs['pair'].tolist()}")
     
     # Only keep top-N pairs for signal generation and backtesting
     pairs_data = {row['pair']: {
