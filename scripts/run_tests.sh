@@ -5,7 +5,7 @@ export PYTHONPATH="$ROOT_DIR:$PYTHONPATH"
 
 # Warn if key packages are missing
 missing=()
-for pkg in hmmlearn pykalman; do
+for pkg in hmmlearn pykalman pandas numpy; do
     python - <<EOF
 import importlib.util, sys
 sys.exit(0 if importlib.util.find_spec("$pkg") else 1)
