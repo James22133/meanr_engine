@@ -89,6 +89,9 @@ Before running the tests, ensure all dependencies are installed:
 pip install -r requirements.txt
 ```
 
+The `requirements.txt` file includes `pytest>=8.0`, which provides the test
+runner used by the `scripts/run_tests.sh` helper.
+
 Running `pytest` or the helper script without these packages (e.g. `hmmlearn`,
 `pykalman`) will result in import errors.
 
