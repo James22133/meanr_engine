@@ -83,3 +83,13 @@ PAIR_PARAMS:
     entry_threshold: 2.2
     exit_threshold: 0.8
     stop_loss_k: 2.1
+
+# Configuration for the backtester
+backtest:
+  initial_capital: 1000000
+  target_volatility: 0.1
+  slippage_bps: 2.0
+  commission_bps: 1.0
+  stop_loss_k: 2.0
+  zscore_entry_threshold: 2.0
+  zscore_exit_threshold: 0.1
