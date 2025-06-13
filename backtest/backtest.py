@@ -43,15 +43,25 @@ class BacktestConfig:
     stop_loss_k: float = 2.0  # Multiplier for volatility-based stop-loss
     zscore_entry_threshold: float = 2.0
     zscore_exit_threshold: float = 0.1
+    max_hold_days: Optional[int] = None
+    target_profit_pct: Optional[float] = None
+    rebalance_freq: int = 21  # Default to weekly rebalancing
+    max_concurrent_positions: int = 5  # Default to 5 positions
 
 class PairsBacktest:
     def __init__(self, config: BacktestConfig):
         self.config = config
-        self.trades: List[Trade] = []
-        self.positions: Dict[Tuple[str, str], Trade] = {}
-        self.equity_curve = pd.Series(dtype=float)
+        self.prices = None
+        self.signals = None
+        self.trades = []
         self.daily_returns = pd.Series(dtype=float)
-        self.realized_pnl = pd.Series(dtype=float)
+        self.equity_curve = pd.Series(dtype=float)
+        self.positions = {}  # Track active positions
+        self.last_rebalance = None
+        self.target_volatility = config.target_volatility
+        self.rebalance_freq = config.rebalance_freq
+        self.max_concurrent_positions = config.max_concurrent_positions
+        self.regime_stats = {0: [], 1: [], 2: []}  # Track returns by regime
         
     def calculate_position_size(
         self,
@@ -72,7 +82,7 @@ class PairsBacktest:
         if pd.isna(current_vol) or current_vol == 0:
             logger.warning(f"Spread volatility is NaN/zero for pair {pair} on {date}")
             return 0
-        position_size = (self.config.initial_capital * self.config.target_volatility) / float(current_vol)
+        position_size = (self.config.initial_capital * self.target_volatility) / float(current_vol)
         return float(position_size) / 2  # Dollar-neutral
     
     def calculate_trade_pnl(
@@ -123,6 +133,9 @@ class PairsBacktest:
         self.equity_curve = pd.Series(index=dates, data=self.config.initial_capital)
         self.realized_pnl = pd.Series(index=dates, data=0.0)
 
+        max_hold_days = getattr(self.config, 'max_hold_days', None)
+        target_profit_pct = getattr(self.config, 'target_profit_pct', None)
+
         for date in dates:
             # Update existing positions
             self._update_positions(date, prices.loc[date])
@@ -141,6 +154,27 @@ class PairsBacktest:
                     # Check for entry conditions
                     if self._should_enter_position(pair, signal, regimes.loc[date]):
                         self._open_position(pair, date, prices, signal)
+            
+            # Check for advanced exits
+            for pair, trade in list(self.positions.items()):
+                if trade.exit_date is not None:
+                    continue
+                # Max holding period exit
+                if max_hold_days is not None and (date - trade.entry_date).days >= max_hold_days:
+                    trade.exit_date = date
+                    trade.exit_price1 = prices.loc[date, trade.asset1]
+                    trade.exit_price2 = prices.loc[date, trade.asset2]
+                    trade.exit_reason = 'max_hold_days'
+                    self._close_position(pair, date, prices.loc[date], 'max_hold_days')
+                    continue
+                # Target profit exit
+                if target_profit_pct is not None and trade.pnl is not None and abs(trade.pnl) >= abs(trade.size) * target_profit_pct:
+                    trade.exit_date = date
+                    trade.exit_price1 = prices.loc[date, trade.asset1]
+                    trade.exit_price2 = prices.loc[date, trade.asset2]
+                    trade.exit_reason = 'target_profit'
+                    self._close_position(pair, date, prices.loc[date], 'target_profit')
+                    continue
             
             # Equity curve is updated within _update_positions to avoid double counting
 
@@ -279,39 +313,84 @@ class PairsBacktest:
                 daily_pnl += current_pnl
         return daily_pnl
     
-    def get_performance_metrics(self) -> Dict[str, float]:
-        """Calculate and return performance metrics."""
+    def rebalance_positions(self, date):
+        """Rebalance positions to maintain target volatility."""
+        if self.last_rebalance is None or (date - self.last_rebalance).days >= self.rebalance_freq:
+            active_positions = [p for p in self.positions.values() if p.is_active]
+            if not active_positions:
+                return
+            
+            # Calculate current portfolio volatility
+            recent_returns = self.daily_returns.last(f"{self.rebalance_freq}D")
+            current_vol = recent_returns.std() * np.sqrt(252)
+            
+            if current_vol > self.target_volatility:
+                # Reduce position sizes proportionally
+                scale_factor = self.target_volatility / current_vol
+                for pos in active_positions:
+                    pos.size *= scale_factor
+            
+            self.last_rebalance = date
+
+    def get_performance_metrics(self) -> dict:
+        """Calculate enhanced performance metrics including regime-specific stats."""
         if self.daily_returns.empty:
             return {}
-            
+        
+        # Basic metrics
         annualized_return = self.daily_returns.mean() * 252
         annualized_vol = self.daily_returns.std() * np.sqrt(252)
         sharpe_ratio = annualized_return / annualized_vol if annualized_vol != 0 else 0
         
-        # Calculate drawdown
-        cummax = self.equity_curve.cummax()
-        drawdown = (self.equity_curve - cummax) / cummax
-        max_drawdown = drawdown.min()
+        # Sortino Ratio (using downside deviation)
+        downside_returns = self.daily_returns[self.daily_returns < 0]
+        downside_dev = downside_returns.std() * np.sqrt(252)
+        sortino_ratio = annualized_return / downside_dev if downside_dev != 0 else 0
         
-        # Calculate win/loss metrics
+        # Calmar Ratio
+        max_drawdown = self.calculate_max_drawdown()
+        calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
+        
+        # Regime-specific metrics
+        regime_returns = {regime: [] for regime in self.regime_stats.keys()}
+        for trade in self.trades:
+            if trade.exit_date and getattr(trade, 'entry_regime', None) is not None:
+                regime_returns[trade.entry_regime].append(trade.pnl)
+        
+        regime_metrics = {}
+        for regime, returns in regime_returns.items():
+            if returns:
+                regime_metrics[f'regime_{regime}_return'] = np.mean(returns)
+                regime_metrics[f'regime_{regime}_sharpe'] = (
+                    np.mean(returns) / np.std(returns) if np.std(returns) != 0 else 0
+                )
+        
+        # Trade statistics
         closed_trades = [t for t in self.trades if t.exit_date is not None]
-        winning_trades = [t for t in closed_trades if t.pnl > 0]
-        win_rate = len(winning_trades) / len(closed_trades) if closed_trades else 0
-        
-        # Calculate average holding period
-        holding_periods = [(t.exit_date - t.entry_date).days for t in closed_trades]
-        avg_holding_period = np.mean(holding_periods) if holding_periods else 0
+        winning_trades = [t for t in closed_trades if t.pnl and t.pnl > 0]
+        avg_trade_duration = np.mean([(t.exit_date - t.entry_date).days for t in closed_trades]) if closed_trades else 0
         
         return {
             'annualized_return': annualized_return,
             'annualized_volatility': annualized_vol,
             'sharpe_ratio': sharpe_ratio,
+            'sortino_ratio': sortino_ratio,
+            'calmar_ratio': calmar_ratio,
             'max_drawdown': max_drawdown,
-            'win_rate': win_rate,
-            'avg_holding_period': avg_holding_period,
+            'win_rate': len(winning_trades) / len(closed_trades) if closed_trades else 0,
+            'avg_holding_period': avg_trade_duration,
             'total_trades': len(closed_trades),
-            'winning_trades': len(winning_trades)
+            'winning_trades': len(winning_trades),
+            **regime_metrics
         }
+
+    def calculate_max_drawdown(self) -> float:
+        """Calculate maximum drawdown from equity curve."""
+        if self.equity_curve.empty:
+            return 0.0
+        rolling_max = self.equity_curve.cummax()
+        drawdown = (self.equity_curve - rolling_max) / rolling_max
+        return drawdown.min()
     
     def save_trades_to_csv(self, filename: str) -> None:
         """Save trade history to CSV file with enhanced fields."""

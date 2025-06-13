@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import logging
 import argparse
+import yaml
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +20,8 @@ from backtest import (
     BacktestConfig
 )
 from optimization import grid_search
+from plots.visualization import generate_all_plots, generate_live_sim_plots
+from utils.pair_filtering import filter_pairs_by_sharpe, export_top_pairs
 
 # --- Configuration ---
 # Parameters are loaded from config.yaml at runtime.
@@ -61,7 +64,14 @@ def compute_pair_scores(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def main(config_path="config.yaml"):
+def calculate_adaptive_thresholds(z_score: pd.Series, window: int, entry_quantile: float, exit_quantile: float) -> tuple:
+    """Calculate adaptive entry/exit thresholds as rolling quantiles (Series)."""
+    entry_threshold = z_score.rolling(window).quantile(entry_quantile).abs()
+    exit_threshold = z_score.rolling(window).quantile(exit_quantile).abs()
+    return entry_threshold, exit_threshold
+
+
+def main(config_path="config.yaml", save_plots=False):
     cfg = load_config(config_path)
     ETF_TICKERS = cfg["ETF_TICKERS"]
     START_DATE = cfg["START_DATE"]
@@ -188,23 +198,21 @@ def main(config_path="config.yaml"):
             'rolling_coint_pvals': rolling_coint_pvals
         })
     
-    # --- Enhancement: Top-N Pair Selection ---
+    # --- Enhancement: Top-N Pair Selection with Fallback ---
+    # Select top 3-5 Sharpe pairs, fallback to zscore_vol < 1.1 if needed
+    min_sharpe = cfg.get('MIN_PAIR_SHARPE', 1.0)
+    top_n = max(3, min(cfg.get('TOP_N_PAIRS', 5), 5))
     metrics_df = pd.DataFrame(metrics_list)
-
-    if metrics_df.empty:
-        logger.warning("Metrics dataframe is empty. Skipping pair selection.")
-        top_pairs = pd.DataFrame()
-    else:
-        metrics_df = metrics_df[metrics_df['coint_p'] <= COINTEGRATION_PVALUE_THRESHOLD]
-        metrics_df = compute_pair_scores(metrics_df)
-        metrics_df = metrics_df.sort_values("score", ascending=False)
-        top_pairs = metrics_df.head(TOP_N_PAIRS)
-        if top_pairs.empty:
-            logger.warning("No pairs meet the cointegration p-value threshold.")
-
-        logger.info(f"Top {TOP_N_PAIRS} pairs selected: {top_pairs['pair'].tolist()}")
-    
-    # Only keep top-N pairs for signal generation and backtesting
+    metrics_df = metrics_df[metrics_df['coint_p'] <= COINTEGRATION_PVALUE_THRESHOLD]
+    metrics_df = compute_pair_scores(metrics_df)
+    metrics_df = metrics_df.sort_values("score", ascending=False)
+    sharpe_sorted = metrics_df.sort_values("score", ascending=False)
+    top_pairs = sharpe_sorted.head(top_n)
+    if top_pairs['score'].lt(min_sharpe).all():
+        # Fallback: select up to 2-3 pairs with zscore_vol < 1.1
+        fallback = metrics_df[metrics_df['zscore_vol'] < 1.1].head(3)
+        top_pairs = pd.concat([top_pairs, fallback]).drop_duplicates(subset=['pair']).head(top_n)
+    logger.info(f"Top pairs selected: {top_pairs['pair'].tolist()}")
     pairs_data = {row['pair']: {
         'z_score': row['z_score'],
         'kalman_states': row['kalman_states'],
@@ -219,35 +227,59 @@ def main(config_path="config.yaml"):
     logger.info("Applying regime filter and generating trading signals...")
     trade_signals = {}
     
+    # --- Re-entry Cooldown Logic ---
+    last_exit_dates = {pair: None for pair in pairs_data}
+    entry_counts = {pair: 0 for pair in pairs_data}
     for pair, pair_data in pairs_data.items():
         asset1_ticker, asset2_ticker = pair
         z_score = pair_data['z_score']
-        # Per-pair parameter overrides
         params = PAIR_PARAMS.get(pair, {})
-        entry_threshold = params.get('entry_threshold', 2.0)
-        exit_threshold = params.get('exit_threshold', 0.1)
+        entry_threshold = params.get('entry_threshold', 1.5)
+        exit_threshold = params.get('exit_threshold', 0.5)
         stop_loss_k = params.get('stop_loss_k', 2.0)
-        # Align Z-score with the regime series index
+        min_days_between_trades = params.get('min_days_between_trades', 5)
+        max_holding_days = params.get('max_holding_days', 20)
+        allowed_regimes = set(cfg.get('ALLOWED_ENTRY_REGIMES', [0, 1]))
         aligned_z_score, aligned_regimes = z_score.align(regime_series, join='inner')
-        dynamic_threshold = entry_threshold if not isinstance(entry_threshold, dict) else entry_threshold.get('default', 2.0)
-        stable_mask = aligned_regimes == STABLE_REGIME_INDEX
-        unstable_mask = aligned_regimes != STABLE_REGIME_INDEX
-        entry_short = ((stable_mask) & (aligned_z_score > dynamic_threshold)) | \
-                      ((unstable_mask) & (aligned_z_score > dynamic_threshold))
-        entry_long = ((stable_mask) & (aligned_z_score < -dynamic_threshold)) | \
-                     ((unstable_mask) & (aligned_z_score < -dynamic_threshold))
+        if cfg.get("USE_ADAPTIVE_THRESHOLDS", False):
+            entry_threshold, exit_threshold = calculate_adaptive_thresholds(
+                aligned_z_score,
+                cfg.get("ZSCORE_QUANTILE_WINDOW", 60),
+                cfg.get("ENTRY_QUANTILE", 0.9),
+                cfg.get("EXIT_QUANTILE", 0.5)
+            )
+        # Generate trading signals
+        entry_short = aligned_z_score > entry_threshold
+        entry_long = aligned_z_score < -entry_threshold
         exit_signal = abs(aligned_z_score) < exit_threshold
-        can_trade = (aligned_regimes == STABLE_REGIME_INDEX)
+        # Regime filter: allow entry in allowed_regimes
+        can_trade = aligned_regimes.isin(allowed_regimes)
         filtered_entry_short = entry_short & can_trade
         filtered_entry_long = entry_long & can_trade
         filtered_exit = exit_signal
+        # Re-entry cooldown: suppress entry if last exit < cooldown
+        entries = []
+        last_exit = None
+        for dt in aligned_z_score.index:
+            if filtered_entry_short.loc[dt] or filtered_entry_long.loc[dt]:
+                if last_exit is not None and (dt - last_exit).days < min_days_between_trades:
+                    filtered_entry_short.loc[dt] = False
+                    filtered_entry_long.loc[dt] = False
+                else:
+                    entries.append(dt)
+            if filtered_exit.loc[dt]:
+                last_exit = dt
+        entry_counts[pair] = len(entries)
+        # Debug print
+        logger.info(f"Pair {pair}: entry_threshold={entry_threshold}, regimes_allowed={allowed_regimes}, entries={entry_counts[pair]}")
         signals = pd.DataFrame({
             'z_score': aligned_z_score,
             'regime': aligned_regimes,
             'entry_short': filtered_entry_short,
             'entry_long': filtered_entry_long,
             'exit': filtered_exit,
-            'stop_loss_k': stop_loss_k
+            'stop_loss_k': stop_loss_k,
+            'max_holding_days': max_holding_days
         }, index=aligned_z_score.index)
         trade_signals[pair] = signals
     
@@ -308,13 +340,16 @@ def main(config_path="config.yaml"):
                 combined_returns = combined_returns.add(r['backtest'].daily_returns, fill_value=0)
             all_trades.extend(r['backtest'].trades)
     
+        # Initialize equity curve with proper float dtype
         equity_curve = pd.Series(index=combined_returns.index, dtype=float)
-        for i, (date, daily_pnl) in enumerate(combined_returns.items()):
-            if i == 0:
-                equity_curve[date] = config.initial_capital + daily_pnl
-            else:
-                prev_date = combined_returns.index[i - 1]
-                equity_curve[date] = equity_curve[prev_date] + daily_pnl
+        equity_curve.iloc[0] = config.initial_capital
+        
+        # Calculate cumulative equity
+        for i in range(1, len(combined_returns)):
+            equity_curve.iloc[i] = equity_curve.iloc[i-1] + combined_returns.iloc[i]
+    
+        # Ensure no NaNs in equity curve using ffill() and bfill()
+        equity_curve = equity_curve.ffill().bfill()
     
         backtest = PairsBacktest(config)
         backtest.daily_returns = combined_returns
@@ -326,6 +361,34 @@ def main(config_path="config.yaml"):
     
     # Aggregate backtest results and assign for use later
     backtest, overall_metrics = aggregate_results(pair_results, config)
+    combined_equity_curve = backtest.equity_curve
+    combined_daily_returns = backtest.daily_returns
+    all_trades = backtest.trades
+    metrics = overall_metrics
+    
+    # --- Sharpe Filtering ---
+    min_sharpe = cfg.get('MIN_PAIR_SHARPE', 1.0)
+    top_n = cfg.get('TOP_N_PAIRS', 5)
+    
+    # Sort pairs by Sharpe ratio
+    pair_results.sort(key=lambda x: x['metrics'].get('sharpe_ratio', -np.inf), reverse=True)
+    
+    # If no pairs meet minimum Sharpe, take top N instead
+    filtered_pair_results = [r for r in pair_results if r['metrics'].get('sharpe_ratio', -np.inf) >= min_sharpe]
+    if not filtered_pair_results:
+        logger.warning(f"No pairs met Sharpe >= {min_sharpe}. Using top {top_n} pairs instead.")
+        filtered_pair_results = pair_results[:top_n]
+    else:
+        # Still limit to top N even if some meet threshold
+        filtered_pair_results = filtered_pair_results[:top_n]
+
+    # --- Export Top Pairs if CLI flag set ---
+    if getattr(args, 'export_top_pairs', False):
+        export_top_pairs(filtered_pair_results, top_n=cfg.get('TOP_N_PAIRS', 5), out_path='selected_pairs.yaml')
+        logger.info("Top pairs exported to selected_pairs.yaml")
+
+    # Use only filtered pairs for analytics/plots
+    backtest, overall_metrics = aggregate_results(filtered_pair_results, config)
     combined_equity_curve = backtest.equity_curve
     combined_daily_returns = backtest.daily_returns
     all_trades = backtest.trades
@@ -413,6 +476,12 @@ def main(config_path="config.yaml"):
     # --- TODO: Output Refinements (Future Step) ---
     # Implement signal heatmap, better performance reporting.
 
+    # Generate plots if requested
+    if save_plots:
+        reports_dir = "reports"
+        generate_all_plots(backtest, pair_results, save_path=reports_dir)
+        logger.info(f"Plots saved to {reports_dir}/")
+
 def run_grid_search(
     config_path: str,
     entry_thresholds: list[float] | None = None,
@@ -466,6 +535,69 @@ def run_grid_search(
         df.to_csv("grid_search_results.csv", index=False)
         logger.info("Results saved to grid_search_results.csv")
 
+def run_live_sim(config_path: str, save_plots: bool = False) -> None:
+    """Run live trading simulation with walk-forward updates."""
+    cfg = load_config(config_path)
+    logger.info("Starting live trading simulation...")
+    
+    # Initialize data structures
+    portfolio = {}
+    active_trades = {}
+    daily_pnl = pd.Series(dtype=float)
+    equity_curve = pd.Series(dtype=float)
+    
+    # Get initial data
+    data = fetch_etf_data(cfg["ETF_TICKERS"], cfg["START_DATE"], cfg["END_DATE"])
+    data = data.dropna(axis=1, thresh=int(0.9 * len(data)))
+    
+    # Load saved pairs if available
+    try:
+        with open('selected_pairs.yaml', 'r') as f:
+            saved_pairs = yaml.safe_load(f)
+        logger.info(f"Loaded {len(saved_pairs)} saved pairs")
+    except FileNotFoundError:
+        saved_pairs = None
+        logger.warning("No saved pairs found. Will generate new pairs.")
+    
+    # Walk forward through dates
+    for date in data.index:
+        logger.info(f"Processing date: {date}")
+        
+        # Update market regimes
+        if len(data.loc[:date]) >= cfg["REGIME_VOLATILITY_WINDOW"]:
+            regime = predict_regimes(train_hmm(calculate_volatility(data.loc[:date])), 
+                                  calculate_volatility(data.loc[:date]))[-1]
+        else:
+            regime = cfg["STABLE_REGIME_INDEX"]
+        
+        # Check for trade exits
+        for pair, trade in list(active_trades.items()):
+            if should_exit_trade(trade, data.loc[date], regime):
+                pnl = close_trade(trade, data.loc[date])
+                daily_pnl.loc[date] = daily_pnl.get(date, 0) + pnl
+                del active_trades[pair]
+        
+        # Check for new entries if below max positions
+        if len(active_trades) < cfg.get("max_concurrent_positions", 5):
+            for pair in saved_pairs or []:
+                if pair not in active_trades and can_enter_trade(pair, data.loc[date], regime):
+                    trade = open_trade(pair, data.loc[date], regime)
+                    active_trades[pair] = trade
+        
+        # Update equity curve
+        if date == data.index[0]:
+            equity_curve.loc[date] = cfg["initial_capital"]
+        else:
+            equity_curve.loc[date] = equity_curve.iloc[-1] + daily_pnl.get(date, 0)
+    
+    # Generate final reports
+    metrics = calculate_performance_metrics(daily_pnl, equity_curve)
+    logger.info("\nLive simulation complete. Performance metrics:")
+    for metric, value in metrics.items():
+        logger.info(f"{metric}: {value:.2f}")
+    
+    if save_plots:
+        generate_live_sim_plots(equity_curve, daily_pnl, active_trades, save_path="reports/")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the mean reversion engine")
@@ -476,13 +608,19 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--mode",
-        choices=["run", "grid-search"],
+        choices=["run", "grid-search", "live-sim"],
         default="run",
         help="Execution mode",
+    )
+    parser.add_argument(
+        "--save-plots",
+        action="store_true",
+        help="Save plots to reports directory",
     )
     parser.add_argument("--entry-thresholds", help="Comma separated thresholds")
     parser.add_argument("--exit-thresholds", help="Comma separated thresholds")
     parser.add_argument("--stop-loss-ks", help="Comma separated multipliers")
+    parser.add_argument('--export-top-pairs', action='store_true', help='Export top Sharpe pairs to YAML')
 
     args = parser.parse_args()
 
@@ -498,6 +636,8 @@ if __name__ == "__main__":
             exit_thresholds=_parse_list(args.exit_thresholds),
             stop_loss_ks=_parse_list(args.stop_loss_ks),
         )
+    elif args.mode == "live-sim":
+        run_live_sim(args.config, save_plots=args.save_plots)
     else:
-        main(args.config)
+        main(args.config, save_plots=args.save_plots)
 

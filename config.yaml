@@ -1,31 +1,30 @@
 ETF_TICKERS:
-  - SPY
-  - QQQ
-  - IWM
-  - EFA
-  - EMB
-  - GLD
-  - SLV
-  - USO
-  - TLT
-  - IEF
-  - XOM
-  - CVX
-  - SLB
-  - HAL
-  - MPC
-  - VLO
-  - COP
-  - EOG
-  - DVN
-  - ET
-  - EPD
-  - OXY
-  - MRO
+  - "SPY"
+  - "QQQ"
+  - "IWM"
+  - "EFA"
+  - "EMB"
+  - "GLD"
+  - "SLV"
+  - "USO"
+  - "TLT"
+  - "IEF"
+  - "XOM"
+  - "CVX"
+  - "SLB"
+  - "HAL"
+  - "MPC"
+  - "VLO"
+  - "COP"
+  - "EOG"
+  - "DVN"
+  - "ET"
+  - "EPD"
+  - "OXY"
 START_DATE: "2020-01-01"
-END_DATE: "2023-01-01"
-COINTEGRATION_WINDOW: 90
-COINTEGRATION_PVALUE_THRESHOLD: 0.2
+END_DATE: "2024-12-31"
+COINTEGRATION_WINDOW: 60
+COINTEGRATION_PVALUE_THRESHOLD: 0.05
 ZSCORE_WINDOW: 20
 HMM_N_COMPONENTS: 3
 REGIME_VOLATILITY_WINDOW: 20
@@ -45,57 +44,63 @@ SECTOR_MAP:
   ET: Energy
   EPD: Energy
   OXY: Energy
-  MRO: Energy
 MANUAL_PAIR_LIST:
-  - [XOM, CVX]
-  - [SLB, HAL]
-  - [MPC, VLO]
-  - [COP, XOM]
-  - [EOG, DVN]
-  - [ET, EPD]
-  - [OXY, MRO]
+  - ["XOM", "CVX"]
+  - ["COP", "XOM"]
+  - ["SLB", "HAL"]
+  - ["MPC", "VLO"]
+  - ["EOG", "DVN"]
 PAIR_PARAMS:
   XOM_CVX:
-    entry_threshold: 1.8
+    entry_threshold: 1.5
     exit_threshold: 0.5
     stop_loss_k: 2.0
-  SLB_HAL:
-    entry_threshold: 2.0
-    exit_threshold: 0.7
-    stop_loss_k: 1.5
-  MPC_VLO:
-    entry_threshold: 1.9
-    exit_threshold: 0.6
-    stop_loss_k: 2.2
+    max_holding_days: 20
+    min_days_between_trades: 5
+    profit_target_pct: 0.02
   COP_XOM:
-    entry_threshold: 2.1
-    exit_threshold: 0.5
-    stop_loss_k: 1.8
-  EOG_DVN:
-    entry_threshold: 2.0
-    exit_threshold: 0.7
-    stop_loss_k: 2.0
-  ET_EPD:
-    entry_threshold: 1.7
-    exit_threshold: 0.5
-    stop_loss_k: 1.6
-  OXY_MRO:
-    entry_threshold: 2.2
-    exit_threshold: 0.8
-    stop_loss_k: 2.1
+    entry_threshold: 1.6
+    exit_threshold: 0.4
+    stop_loss_k: 2.2
+    max_holding_days: 15
+    min_days_between_trades: 7
+    profit_target_pct: 0.015
 
 # Configuration for the backtester
 backtest:
   initial_capital: 1000000
-  target_volatility: 0.1
-  slippage_bps: 2.0
-  commission_bps: 1.0
+  target_volatility: 0.15
+  slippage_bps: 5.0
+  commission_bps: 10.0
   stop_loss_k: 2.0
-  zscore_entry_threshold: 2.0
-  zscore_exit_threshold: 0.1
+  zscore_entry_threshold: 1.5
+  zscore_exit_threshold: 0.5
+  max_hold_days: 15
+  target_profit_pct: 0.05
+  rebalance_freq: 21
+  max_concurrent_positions: 5
 
 # Parameter ranges for CLI grid search
 grid_search:
-  entry_thresholds: [1.5, 2.0]
-  exit_thresholds: [0.1]
-  stop_loss_ks: [2.0]
+  entry_thresholds: [1.5, 2.0, 2.5]
+  exit_thresholds: [0.1, 0.2, 0.3]
+  stop_loss_ks: [2.0, 2.5, 3.0]
+
+# Trading Parameters
+ALLOW_ALL_REGIMES: true
+USE_ADAPTIVE_THRESHOLDS: true
+ZSCORE_QUANTILE_WINDOW: 60
+ENTRY_QUANTILE: 0.9
+EXIT_QUANTILE: 0.5
+
+# Minimum Sharpe ratio for pair inclusion
+MIN_PAIR_SHARPE: 1.0
+
+# Regime entry constraint
+REGIME_ENTRY_ONLY: true
+
+# Regimes allowed for entry (list)
+ALLOWED_ENTRY_REGIMES: [0, 1]
+
+# Risk Management
+min_days_between_trades: 5
