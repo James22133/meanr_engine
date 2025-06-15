@@ -21,7 +21,7 @@ ETF_TICKERS:
   - "ET"
   - "EPD"
   - "OXY"
-START_DATE: "2020-01-01"
+START_DATE: "2018-01-01"
 END_DATE: "2024-12-31"
 COINTEGRATION_WINDOW: 60
 COINTEGRATION_PVALUE_THRESHOLD: 0.05
@@ -59,7 +59,7 @@ PAIR_PARAMS:
     min_days_between_trades: 5
     profit_target_pct: 0.02
   COP_XOM:
-    entry_threshold: 1.6
+    entry_threshold: 1.5
     exit_threshold: 0.4
     stop_loss_k: 2.2
     max_holding_days: 15
@@ -104,3 +104,8 @@ ALLOWED_ENTRY_REGIMES: [0, 1]
 
 # Risk Management
 min_days_between_trades: 5
+
+# Walk-forward validation parameters
+WALKFORWARD_TRAIN_MONTHS: 18
+WALKFORWARD_TEST_MONTHS: 6
+WALKFORWARD_STEP_MONTHS: 6
