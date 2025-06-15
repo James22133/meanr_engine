@@ -75,6 +75,20 @@ Running the engine will:
 4. Run the backtest
 5. Generate performance reports and visualizations
 
+### Grid Search
+
+Use `grid_search_cli.py` to explore parameter values for a single pair:
+
+```bash
+python grid_search_cli.py --config config.yaml \
+    --entry-range 1.5 2.0 2.5 \
+    --exit-range 0.1 0.2 \
+    --stop-range 2.0
+```
+
+The command fetches price data, runs the optimization and prints a table of
+results sorted by Sharpe ratio.
+
 ## Project Structure
 
 ```
@@ -122,25 +136,6 @@ All parameters are stored in `config.yaml`, which is read at runtime by
 `config.load_config()`. Edit this file to tweak tickers, thresholds and other
 settings.
 
-`CROSSVAL_TRAIN_DAYS` and `CROSSVAL_TEST_DAYS` control the size of the rolling
-training and testing windows used in `run_engine.py`. The engine trains models
-on the most recent `CROSSVAL_TRAIN_DAYS` of data, evaluates on the following
-`CROSSVAL_TEST_DAYS`, then advances the window by the test period length to
-create the next fold.
-
-Example snippet:
-
-```yaml
-ETF_TICKERS:
-  - XOM
-  - CVX
-CROSSVAL_TRAIN_DAYS: 252  # one year of training
-CROSSVAL_TEST_DAYS: 63    # three months of testing
-PAIR_PARAMS:
-  XOM_CVX:
-    entry_threshold: 1.8
-    exit_threshold: 0.6
-```
 
 ## Pair Scoring
 
