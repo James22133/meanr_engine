@@ -166,32 +166,35 @@ class PairsBacktest:
                 if self.should_exit_trade(trade, date):
                     self.close_trade(trade, date)
                     del active_trades[pair]
-            
+
             # Check for new entries
             for pair, signal_df in signals.items():
                 if pair in active_trades:
                     continue
-                
+
                 if not self.check_skew_filter(pair, date):
                     continue
-                
+
                 regime = regimes.loc[date]
                 position_size = self.get_position_size(pair, date, regime)
-                
+
                 if signal_df.loc[date, 'entry_long']:
                     entry_price = prices.loc[date, pair[0]]
                     stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price)
-                    trade = self.open_trade(pair, date, 'long', entry_price, 
+                    trade = self.open_trade(pair, date, 'long', entry_price,
                                           stop_loss, position_size)
                     active_trades[pair] = trade
-                
+
                 elif signal_df.loc[date, 'entry_short']:
                     entry_price = prices.loc[date, pair[1]]
                     stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price)
-                    trade = self.open_trade(pair, date, 'short', entry_price, 
+                    trade = self.open_trade(pair, date, 'short', entry_price,
                                           stop_loss, position_size)
                     active_trades[pair] = trade
-            
+
+            # Update open positions and equity curve
+            self._update_positions(date, prices.loc[date])
+
             # Equity curve is updated within _update_positions to avoid double counting
 
         # Calculate daily returns
