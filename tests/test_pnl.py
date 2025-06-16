@@ -133,3 +133,45 @@ def test_update_positions_uses_trade_stop_loss_k():
 
     bt._update_positions(dates[20], prices.loc[dates[20]])
     assert ("A", "B") in bt.positions
+
+
+def test_run_backtest_records_entry_prices_long():
+    bt = make_backtester()
+    dates = pd.date_range("2023-01-01", periods=1)
+    prices = pd.DataFrame({"A": [100.0], "B": [90.0]}, index=dates)
+    signals = {
+        ("A", "B"): pd.DataFrame(
+            {
+                "entry_long": [True],
+                "entry_short": [False],
+                "exit": [False],
+            },
+            index=dates,
+        )
+    }
+    regimes = pd.Series(index=dates, data=0)
+    bt.run_backtest(prices, signals, regimes)
+    trade = bt.trades[0]
+    assert trade.entry_price1 == prices.loc[dates[0], "A"]
+    assert trade.entry_price2 == prices.loc[dates[0], "B"]
+
+
+def test_run_backtest_records_entry_prices_short():
+    bt = make_backtester()
+    dates = pd.date_range("2023-01-01", periods=1)
+    prices = pd.DataFrame({"A": [50.0], "B": [55.0]}, index=dates)
+    signals = {
+        ("A", "B"): pd.DataFrame(
+            {
+                "entry_long": [False],
+                "entry_short": [True],
+                "exit": [False],
+            },
+            index=dates,
+        )
+    }
+    regimes = pd.Series(index=dates, data=0)
+    bt.run_backtest(prices, signals, regimes)
+    trade = bt.trades[0]
+    assert trade.entry_price1 == prices.loc[dates[0], "A"]
+    assert trade.entry_price2 == prices.loc[dates[0], "B"]
