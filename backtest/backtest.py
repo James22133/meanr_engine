@@ -514,18 +514,26 @@ class PairsBacktest:
         """Determine if a trade should be exited based on the exit condition."""
         if trade.exit_date is not None:
             return True
-        if trade.exit_date is None and date >= trade.entry_date + pd.Timedelta(days=self.config.max_hold_days):
+        if (self.config.max_hold_days is not None and
+                date >= trade.entry_date + pd.Timedelta(days=self.config.max_hold_days)):
             trade.exit_date = date
             trade.exit_price1 = self.prices.loc[date, trade.asset1]
             trade.exit_price2 = self.prices.loc[date, trade.asset2]
             trade.exit_reason = 'max_hold_days'
             return True
-        if trade.exit_date is None and date >= trade.entry_date + pd.Timedelta(days=self.config.max_hold_days):
-            trade.exit_date = date
-            trade.exit_price1 = self.prices.loc[date, trade.asset1]
-            trade.exit_price2 = self.prices.loc[date, trade.asset2]
-            trade.exit_reason = 'target_profit'
-            return True
+
+        if self.config.target_profit_pct is not None:
+            price1 = self.prices.loc[date, trade.asset1]
+            price2 = self.prices.loc[date, trade.asset2]
+            current_pnl = self.calculate_trade_pnl(
+                trade, current_price1=price1, current_price2=price2
+            )
+            if current_pnl / trade.size >= self.config.target_profit_pct:
+                trade.exit_date = date
+                trade.exit_price1 = price1
+                trade.exit_price2 = price2
+                trade.exit_reason = 'target_profit'
+                return True
         return False
 
     def close_trade(self, trade: Trade, date: pd.Timestamp) -> None:
