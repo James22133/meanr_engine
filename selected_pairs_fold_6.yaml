@@ -1,0 +1,12 @@
+- !!python/tuple
+  - EPD
+  - ET
+- !!python/tuple
+  - COP
+  - EOG
+- !!python/tuple
+  - SLB
+  - VLO
+- !!python/tuple
+  - VLO
+  - XOM

@@ -48,6 +48,22 @@ class BacktestConfig:
     rebalance_freq: int = 21  # Default to weekly rebalancing
     max_concurrent_positions: int = 5  # Default to 5 positions
 
+def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, lookback: int = 5) -> pd.Series:
+    """Calculate Average True Range (ATR) for stop-loss sizing."""
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(window=lookback).mean()
+    return atr
+
+def estimate_skew_ratio(z_score: pd.Series, window: int = 20) -> Tuple[float, float]:
+    """Estimate downside vs upside potential based on historical Z-score behavior."""
+    returns = z_score.diff()
+    downside = returns[returns < 0].abs().mean()
+    upside = returns[returns > 0].abs().mean()
+    return downside, upside
+
 class PairsBacktest:
     def __init__(self, config: BacktestConfig):
         self.config = config
@@ -62,6 +78,8 @@ class PairsBacktest:
         self.rebalance_freq = config.rebalance_freq
         self.max_concurrent_positions = config.max_concurrent_positions
         self.regime_stats = {0: [], 1: [], 2: []}  # Track returns by regime
+        self.initial_capital = config.initial_capital
+        self.risk_config = config.get('risk_management', {})
         
     def calculate_position_size(
         self,
@@ -136,45 +154,39 @@ class PairsBacktest:
         max_hold_days = getattr(self.config, 'max_hold_days', None)
         target_profit_pct = getattr(self.config, 'target_profit_pct', None)
 
+        active_trades = {}
+        
         for date in dates:
-            # Update existing positions
-            self._update_positions(date, prices.loc[date])
+            # Check for exits first
+            for pair, trade in list(active_trades.items()):
+                if self.should_exit_trade(trade, date):
+                    self.close_trade(trade, date)
+                    del active_trades[pair]
             
-            # Check for new signals
-            for pair, pair_signals in signals.items():
-                if date not in pair_signals.index:
+            # Check for new entries
+            for pair, signal_df in signals.items():
+                if pair in active_trades:
                     continue
-                    
-                signal = pair_signals.loc[date]
-                if pair in self.positions:
-                    # Check for exit conditions
-                    if self._should_exit_position(pair, signal):
-                        self._close_position(pair, date, prices.loc[date], 'signal')
-                else:
-                    # Check for entry conditions
-                    if self._should_enter_position(pair, signal, regimes.loc[date]):
-                        self._open_position(pair, date, prices, signal)
-            
-            # Check for advanced exits
-            for pair, trade in list(self.positions.items()):
-                if trade.exit_date is not None:
+                
+                if not self.check_skew_filter(pair, date):
                     continue
-                # Max holding period exit
-                if max_hold_days is not None and (date - trade.entry_date).days >= max_hold_days:
-                    trade.exit_date = date
-                    trade.exit_price1 = prices.loc[date, trade.asset1]
-                    trade.exit_price2 = prices.loc[date, trade.asset2]
-                    trade.exit_reason = 'max_hold_days'
-                    self._close_position(pair, date, prices.loc[date], 'max_hold_days')
-                    continue
-                # Target profit exit
-                if target_profit_pct is not None and trade.pnl is not None and abs(trade.pnl) >= abs(trade.size) * target_profit_pct:
-                    trade.exit_date = date
-                    trade.exit_price1 = prices.loc[date, trade.asset1]
-                    trade.exit_price2 = prices.loc[date, trade.asset2]
-                    trade.exit_reason = 'target_profit'
-                    self._close_position(pair, date, prices.loc[date], 'target_profit')
-                    continue
+                
+                regime = regimes.loc[date]
+                position_size = self.get_position_size(pair, date, regime)
+                
+                if signal_df.loc[date, 'entry_long']:
+                    entry_price = prices.loc[date, pair[0]]
+                    stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price)
+                    trade = self.open_trade(pair, date, 'long', entry_price, 
+                                          stop_loss, position_size)
+                    active_trades[pair] = trade
+                
+                elif signal_df.loc[date, 'entry_short']:
+                    entry_price = prices.loc[date, pair[1]]
+                    stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price)
+                    trade = self.open_trade(pair, date, 'short', entry_price, 
+                                          stop_loss, position_size)
+                    active_trades[pair] = trade
             
             # Equity curve is updated within _update_positions to avoid double counting
 
@@ -451,3 +463,127 @@ class PairsBacktest:
             self.equity_curve.loc[date] = float(self.equity_curve.loc[prev_date]) + float(daily_pnl)
         else:
             self.equity_curve.loc[date] = float(self.config.initial_capital) + float(daily_pnl)
+
+    def calculate_stop_loss(self, pair: Tuple[str, str], date: pd.Timestamp, 
+                          position_type: str, entry_price: float) -> float:
+        """Calculate stop-loss level based on configured mode."""
+        if self.risk_config.get('stop_loss_mode') == 'atr':
+            # ATR-based stop-loss
+            lookback = self.risk_config.get('atr_lookback', 5)
+            prices = self.prices.loc[:date, list(pair)]
+            atr = calculate_atr(prices.max(axis=1), prices.min(axis=1), 
+                              prices.mean(axis=1), lookback)
+            atr_value = atr.loc[date]
+            if position_type == 'long':
+                return entry_price - (atr_value * self.config.stop_loss_k)
+            else:
+                return entry_price + (atr_value * self.config.stop_loss_k)
+        else:
+            # Fixed multiplier stop-loss
+            if position_type == 'long':
+                return entry_price * (1 - self.config.stop_loss_k / 100)
+            else:
+                return entry_price * (1 + self.config.stop_loss_k / 100)
+
+    def check_skew_filter(self, pair: Tuple[str, str], date: pd.Timestamp) -> bool:
+        """Check if trade passes skew filter criteria."""
+        if not self.risk_config.get('skew_filter', False):
+            return True
+        
+        z_score = self.signals[pair]['z_score']
+        downside, upside = estimate_skew_ratio(z_score.loc[:date])
+        ratio = downside / upside if upside > 0 else float('inf')
+        threshold = self.risk_config.get('down_up_ratio_threshold', 1.5)
+        return ratio <= threshold
+
+    def get_position_size(self, pair: Tuple[str, str], date: pd.Timestamp, 
+                         regime: int) -> float:
+        """Calculate position size based on regime and risk settings."""
+        base_size = 1.0
+        if self.risk_config.get('regime_sizing', False):
+            # Reduce size in unstable regimes
+            if regime > 0:  # Assuming regime 0 is stable
+                base_size = 0.5
+        return base_size
+
+    def should_exit_trade(self, trade: Trade, date: pd.Timestamp) -> bool:
+        """Determine if a trade should be exited based on the exit condition."""
+        if trade.exit_date is not None:
+            return True
+        if trade.exit_date is None and date >= trade.entry_date + pd.Timedelta(days=self.config.max_hold_days):
+            trade.exit_date = date
+            trade.exit_price1 = self.prices.loc[date, trade.asset1]
+            trade.exit_price2 = self.prices.loc[date, trade.asset2]
+            trade.exit_reason = 'max_hold_days'
+            return True
+        if trade.exit_date is None and date >= trade.entry_date + pd.Timedelta(days=self.config.max_hold_days):
+            trade.exit_date = date
+            trade.exit_price1 = self.prices.loc[date, trade.asset1]
+            trade.exit_price2 = self.prices.loc[date, trade.asset2]
+            trade.exit_reason = 'target_profit'
+            return True
+        return False
+
+    def close_trade(self, trade: Trade, date: pd.Timestamp) -> None:
+        """Close a trade and update equity curve."""
+        trade.exit_date = date
+        trade.exit_price1 = self.prices.loc[date, trade.asset1]
+        trade.exit_price2 = self.prices.loc[date, trade.asset2]
+        trade.exit_reason = 'exit'
+        trade.pnl = self.calculate_trade_pnl(trade)
+
+        # Record realized P&L for the day
+        if date in self.realized_pnl.index:
+            self.realized_pnl.loc[date] += trade.pnl
+        else:
+            self.realized_pnl.loc[date] = trade.pnl
+
+        # Immediately update equity curve to reflect realized gains
+        idx = self.equity_curve.index.get_loc(date) if date in self.equity_curve.index else None
+        daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
+        if idx is not None and idx > 0:
+            prev_date = self.equity_curve.index[idx - 1]
+            self.equity_curve.loc[date] = float(self.equity_curve.loc[prev_date]) + float(daily_pnl)
+        else:
+            self.equity_curve.loc[date] = float(self.config.initial_capital) + float(daily_pnl)
+
+        del self.positions[tuple(trade.asset1, trade.asset2)]
+        logger.info(
+            f"Closed position in {tuple(trade.asset1, trade.asset2)} at {date} with P&L: ${trade.pnl:,.2f}"
+        )
+
+    def open_trade(self, pair: Tuple[str, str], date: pd.Timestamp, 
+                  direction: str, entry_price: float, stop_loss: float, size: float) -> Trade:
+        """Open a new trade and update equity curve."""
+        asset1, asset2 = pair
+        trade = Trade(
+            entry_date=date,
+            exit_date=None,
+            asset1=asset1,
+            asset2=asset2,
+            direction=direction,
+            entry_price1=entry_price,
+            entry_price2=entry_price,
+            exit_price1=None,
+            exit_price2=None,
+            size=size,
+            pnl=None,
+            exit_reason=None,
+            entry_zscore=None,
+            entry_spread_vol=None,
+            entry_coint_p=None,
+            entry_adf_p=None,
+            entry_hurst=None,
+            entry_regime=None,
+            stop_loss_k=self.config.stop_loss_k
+        )
+        self.positions[pair] = trade
+        self.trades.append(trade)
+        logger.info(
+            "Opened %s position in %s at %s | stop_loss=%s",
+            direction,
+            pair,
+            date,
+            stop_loss,
+        )
+        return trade

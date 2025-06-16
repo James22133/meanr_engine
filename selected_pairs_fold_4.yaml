@@ -1,0 +1,15 @@
+- !!python/tuple
+  - CVX
+  - VLO
+- !!python/tuple
+  - EOG
+  - ET
+- !!python/tuple
+  - EOG
+  - MPC
+- !!python/tuple
+  - EOG
+  - SLB
+- !!python/tuple
+  - DVN
+  - EPD

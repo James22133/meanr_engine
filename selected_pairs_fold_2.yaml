@@ -1,0 +1,15 @@
+- !!python/tuple
+  - ET
+  - VLO
+- !!python/tuple
+  - EOG
+  - EPD
+- !!python/tuple
+  - HAL
+  - MPC
+- !!python/tuple
+  - EPD
+  - SLB
+- !!python/tuple
+  - CVX
+  - VLO

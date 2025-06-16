@@ -109,3 +109,32 @@ min_days_between_trades: 5
 WALKFORWARD_TRAIN_MONTHS: 18
 WALKFORWARD_TEST_MONTHS: 6
 WALKFORWARD_STEP_MONTHS: 6
+
+risk_management:
+  # Stop-loss settings
+  stop_loss:
+    mode: "atr"  # Options: "fixed", "atr"
+    atr_lookback: 20  # Lookback period for ATR calculation
+    atr_multiplier: 2.0  # Multiplier for ATR-based stop-loss
+    fixed_multiplier: 0.02  # Fixed stop-loss percentage (2%)
+  
+  # Skew filter settings
+  skew_filter:
+    enabled: true
+    lookback: 60  # Days to look back for skew calculation
+    min_down_up_ratio: 0.5  # Minimum acceptable downside/upside ratio
+    min_sortino: 0.5  # Minimum acceptable Sortino ratio
+  
+  # Position sizing settings
+  position_sizing:
+    regime_aware: true  # Adjust position size based on market regime
+    base_size: 0.1  # Base position size (10% of portfolio)
+    regime_multipliers:
+      high_volatility: 0.5  # Reduce size in high volatility
+      low_volatility: 1.5  # Increase size in low volatility
+      transition: 1.0  # Normal size in transition periods
+  
+  # Risk metrics
+  risk_metrics:
+    risk_free_rate: 0.02  # Annual risk-free rate (2%)
+    benchmark_sharpe: 1.0  # Benchmark Sharpe ratio for PSR calculation
