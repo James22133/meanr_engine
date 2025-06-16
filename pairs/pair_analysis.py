@@ -73,6 +73,38 @@ def apply_kalman_filter(y, X):
     
     return states_pred, covs_pred
 
+def apply_kalman_filter_rolling(y: pd.Series, X: pd.Series, window: int = 60) -> pd.DataFrame:
+    """Estimate Kalman filter parameters using a rolling window.
+
+    Parameters
+    ----------
+    y : pd.Series
+        Dependent variable.
+    X : pd.Series
+        Independent variable.
+    window : int, optional
+        Number of observations to use for each re-estimation, by default ``60``.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing the filtered ``alpha`` and ``beta`` for each time
+        step. The first ``window - 1`` rows are ``NaN`` because there is not
+        enough history to estimate the filter yet.
+    """
+
+    aligned = pd.concat([y, X], axis=1).dropna()
+    n = len(aligned)
+    states = np.full((n, 2), np.nan)
+
+    for i in range(window, n + 1):
+        sub_y = aligned.iloc[i - window:i, 0]
+        sub_X = aligned.iloc[i - window:i, 1]
+        kf_states, _ = apply_kalman_filter(sub_y, sub_X)
+        states[i - 1] = kf_states[-1]
+
+    return pd.DataFrame(states, index=aligned.index, columns=["alpha", "beta"])
+
 def calculate_spread_and_zscore(y, X, states, rolling_window=20):
     """
     Calculate the spread (y - beta*X) and its rolling Z-score.

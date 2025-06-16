@@ -23,7 +23,14 @@ from optimization import grid_search
 from plots.visualization import generate_all_plots, generate_live_sim_plots
 from utils.pair_filtering import filter_pairs_by_sharpe, export_top_pairs
 from utils.data_utils import generate_walkforward_windows
-from pairs.pair_analysis import apply_kalman_filter, calculate_spread_and_zscore, rolling_cointegration, rolling_hurst, rolling_adf, KalmanFilter
+from pairs.pair_analysis import (
+    apply_kalman_filter_rolling,
+    calculate_spread_and_zscore,
+    rolling_cointegration,
+    rolling_hurst,
+    rolling_adf,
+    KalmanFilter,
+)
 from itertools import combinations
 
 # --- Configuration ---
@@ -210,13 +217,18 @@ def main(config_path="config.yaml", save_plots=False):
         price_X_aligned = aligned_prices.iloc[:, 1]
         rolling_coint_pvals = rolling_cointegration(price_y_aligned, price_X_aligned, window=60)
         last_coint_p = rolling_coint_pvals.dropna().iloc[-1] if not rolling_coint_pvals.dropna().empty else 1.0
-        kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
-        spread = price_y_aligned - pd.Series(kf_states[:, 1], index=price_X_aligned.index) * price_X_aligned
+        kf_states_df = apply_kalman_filter_rolling(price_y_aligned, price_X_aligned, window=60)
+        spread = price_y_aligned.loc[kf_states_df.index] - kf_states_df["beta"] * price_X_aligned.loc[kf_states_df.index]
         rolling_hurst_vals = rolling_hurst(spread.dropna(), window=60)
         rolling_adf_vals = rolling_adf(spread.dropna(), window=60)
         last_hurst = rolling_hurst_vals.dropna().iloc[-1] if not rolling_hurst_vals.dropna().empty else 1.0
         last_adf_p = rolling_adf_vals.dropna().iloc[-1] if not rolling_adf_vals.dropna().empty else 1.0
-        z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states, rolling_window=ZSCORE_WINDOW)
+        z_score = calculate_spread_and_zscore(
+            price_y_aligned,
+            price_X_aligned,
+            kf_states_df.values,
+            rolling_window=ZSCORE_WINDOW,
+        )
         zscore_vol = z_score.rolling(60).std().dropna().iloc[-1] if z_score.rolling(60).std().dropna().size > 0 else 1.0
         score = compute_pair_score(last_coint_p, last_hurst, last_adf_p, zscore_vol)
         logger.info(
@@ -229,7 +241,7 @@ def main(config_path="config.yaml", save_plots=False):
             'adf_p': last_adf_p,
             'zscore_vol': zscore_vol,
             'z_score': z_score,
-            'kalman_states': kf_states,
+            'kalman_states': kf_states_df,
             'rolling_hurst': rolling_hurst_vals,
             'rolling_adf': rolling_adf_vals,
             'rolling_coint_pvals': rolling_coint_pvals
@@ -685,8 +697,13 @@ def run_walkforward_validation(config_path="config.yaml", save_plots=False, trai
                 continue
             price_y_aligned = aligned_prices.iloc[:, 0]
             price_X_aligned = aligned_prices.iloc[:, 1]
-            kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
-            z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states, rolling_window=20)
+            kf_states_df = apply_kalman_filter_rolling(price_y_aligned, price_X_aligned, window=60)
+            z_score = calculate_spread_and_zscore(
+                price_y_aligned,
+                price_X_aligned,
+                kf_states_df.values,
+                rolling_window=20,
+            )
             # For now, use simple thresholding for signals (can be improved)
             entry_threshold = 1.5
             exit_threshold = 0.5
@@ -727,8 +744,13 @@ def run_walkforward_validation(config_path="config.yaml", save_plots=False, trai
                 continue
             price_y_aligned = aligned_prices.iloc[:, 0]
             price_X_aligned = aligned_prices.iloc[:, 1]
-            kf_states, kf_covs = apply_kalman_filter(price_y_aligned, price_X_aligned)
-            z_score = calculate_spread_and_zscore(price_y_aligned, price_X_aligned, kf_states, rolling_window=20)
+            kf_states_df = apply_kalman_filter_rolling(price_y_aligned, price_X_aligned, window=60)
+            z_score = calculate_spread_and_zscore(
+                price_y_aligned,
+                price_X_aligned,
+                kf_states_df.values,
+                rolling_window=20,
+            )
             entry_threshold = 1.5
             exit_threshold = 0.5
             entry_short = z_score > entry_threshold
