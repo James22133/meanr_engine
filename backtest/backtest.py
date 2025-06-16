@@ -179,17 +179,19 @@ class PairsBacktest:
                 position_size = self.get_position_size(pair, date, regime)
                 
                 if signal_df.loc[date, 'entry_long']:
-                    entry_price = prices.loc[date, pair[0]]
-                    stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price)
-                    trade = self.open_trade(pair, date, 'long', entry_price, 
-                                          stop_loss, position_size)
+                    entry_price1 = prices.loc[date, pair[0]]
+                    entry_price2 = prices.loc[date, pair[1]]
+                    stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price1)
+                    trade = self.open_trade(pair, date, 'long', entry_price1,
+                                          entry_price2, stop_loss, position_size)
                     active_trades[pair] = trade
-                
+
                 elif signal_df.loc[date, 'entry_short']:
-                    entry_price = prices.loc[date, pair[1]]
-                    stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price)
-                    trade = self.open_trade(pair, date, 'short', entry_price, 
-                                          stop_loss, position_size)
+                    entry_price1 = prices.loc[date, pair[0]]
+                    entry_price2 = prices.loc[date, pair[1]]
+                    stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price2)
+                    trade = self.open_trade(pair, date, 'short', entry_price1,
+                                          entry_price2, stop_loss, position_size)
                     active_trades[pair] = trade
             
             # Equity curve is updated within _update_positions to avoid double counting
@@ -564,8 +566,9 @@ class PairsBacktest:
             f"Closed position in {(trade.asset1, trade.asset2)} at {date} with P&L: ${trade.pnl:,.2f}"
         )
 
-    def open_trade(self, pair: Tuple[str, str], date: pd.Timestamp, 
-                  direction: str, entry_price: float, stop_loss: float, size: float) -> Trade:
+    def open_trade(self, pair: Tuple[str, str], date: pd.Timestamp,
+                  direction: str, entry_price1: float, entry_price2: float,
+                  stop_loss: float, size: float) -> Trade:
         """Open a new trade and update equity curve."""
         asset1, asset2 = pair
         trade = Trade(
@@ -574,8 +577,8 @@ class PairsBacktest:
             asset1=asset1,
             asset2=asset2,
             direction=direction,
-            entry_price1=entry_price,
-            entry_price2=entry_price,
+            entry_price1=entry_price1,
+            entry_price2=entry_price2,
             exit_price1=None,
             exit_price2=None,
             size=size,
