@@ -24,4 +24,4 @@ def generate_walkforward_windows(
             break
         windows.append((train_start, train_end, test_start, test_end))
         current_start = current_start + pd.DateOffset(months=step_months)
-    return windows 
+    return windows
