@@ -79,7 +79,11 @@ class PairsBacktest:
         self.max_concurrent_positions = config.max_concurrent_positions
         self.regime_stats = {0: [], 1: [], 2: []}  # Track returns by regime
         self.initial_capital = config.initial_capital
-        self.risk_config = config.get('risk_management', {})
+        # Support either dataclass or dict configs
+        if isinstance(config, dict):
+            self.risk_config = config.get('risk_management', {})
+        else:
+            self.risk_config = getattr(config, 'risk_management', {})
         
     def calculate_position_size(
         self,
