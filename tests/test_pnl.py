@@ -133,3 +133,20 @@ def test_update_positions_uses_trade_stop_loss_k():
 
     bt._update_positions(dates[20], prices.loc[dates[20]])
     assert ("A", "B") in bt.positions
+
+
+def test_rebalance_positions_runs_without_attribute_error():
+    bt = make_backtester()
+    dates = pd.date_range("2023-01-01", periods=30)
+    bt.daily_returns = pd.Series(0.0, index=dates)
+
+    trade = make_trade(
+        entry_date=dates[0],
+        exit_date=None,
+        exit_price1=None,
+        exit_price2=None,
+    )
+    bt.positions[("A", "B")] = trade
+
+    # Should not raise AttributeError even if Trade lacks is_active attribute
+    bt.rebalance_positions(dates[-1])

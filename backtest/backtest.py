@@ -33,6 +33,11 @@ class Trade:
     entry_regime: Optional[int] = None
     stop_loss_k: float = 2.0
 
+    @property
+    def is_active(self) -> bool:
+        """Return True if the trade has not been exited."""
+        return self.exit_date is None
+
 @dataclass
 class BacktestConfig:
     """Configuration parameters for backtesting."""
@@ -332,7 +337,8 @@ class PairsBacktest:
     def rebalance_positions(self, date):
         """Rebalance positions to maintain target volatility."""
         if self.last_rebalance is None or (date - self.last_rebalance).days >= self.rebalance_freq:
-            active_positions = [p for p in self.positions.values() if p.is_active]
+            # Only consider positions that are still open
+            active_positions = [p for p in self.positions.values() if p.exit_date is None]
             if not active_positions:
                 return
             
