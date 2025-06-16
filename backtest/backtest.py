@@ -551,9 +551,9 @@ class PairsBacktest:
         else:
             self.equity_curve.loc[date] = float(self.config.initial_capital) + float(daily_pnl)
 
-        del self.positions[tuple(trade.asset1, trade.asset2)]
+        del self.positions[(trade.asset1, trade.asset2)]
         logger.info(
-            f"Closed position in {tuple(trade.asset1, trade.asset2)} at {date} with P&L: ${trade.pnl:,.2f}"
+            f"Closed position in {(trade.asset1, trade.asset2)} at {date} with P&L: ${trade.pnl:,.2f}"
         )
 
     def open_trade(self, pair: Tuple[str, str], date: pd.Timestamp, 
