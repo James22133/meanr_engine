@@ -135,6 +135,33 @@ def test_update_positions_uses_trade_stop_loss_k():
     assert ("A", "B") in bt.positions
 
 
+def test_close_trade_removes_position():
+    bt = make_backtester()
+    date = datetime.datetime(2023, 1, 2)
+    prices = pd.DataFrame(
+        {
+            "A": [105.0],
+            "B": [90.0],
+        },
+        index=[date],
+    )
+    bt.prices = prices
+    bt.realized_pnl = pd.Series(index=prices.index, data=0.0)
+    bt.equity_curve = pd.Series(index=prices.index, data=bt.config.initial_capital)
+
+    trade = make_trade(
+        exit_date=None,
+        exit_price1=None,
+        exit_price2=None,
+        entry_price1=100.0,
+        entry_price2=95.0,
+    )
+    bt.positions[("A", "B")] = trade
+
+    bt.close_trade(trade, date)
+    assert ("A", "B") not in bt.positions
+
+
 def test_run_backtest_records_entry_prices_long():
     bt = make_backtester()
     dates = pd.date_range("2023-01-01", periods=1)
