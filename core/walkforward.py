@@ -94,9 +94,16 @@ class WalkForwardValidator:
                     f"Fold {i+1} pair {pair} entry {entry} exit {exit_}"
                 )
 
-                pair_metrics = self.pair_selector.calculate_pair_metrics(
+                pair_metrics_all = self.pair_selector.calculate_pair_metrics(
                     pd.concat([pair_train, pair_test])
                 )
+                # Use metrics aligned to the test period
+                pair_metrics = {
+                    **pair_metrics_all,
+                    "spread": pair_metrics_all["spread"].loc[pair_test.index],
+                    "zscore": pair_metrics_all["zscore"].loc[pair_test.index],
+                }
+
                 result = self.backtest_runner.run_backtest(
                     pair_test,
                     pair_metrics,
