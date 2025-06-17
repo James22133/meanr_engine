@@ -85,13 +85,17 @@ class PairSelector:
                 transition_covariance=np.eye(2) * 0.01,
                 observation_covariance=1.0
             )
-            
-            # Fit Kalman filter
-            kf = kf.em(pair_data.iloc[:, 1].values.reshape(-1, 1))
-            
+
+            # Fit Kalman filter parameters using EM
+            observations = pair_data.iloc[:, 1].values.reshape(-1, 1)
+            kf = kf.em(observations)
+
+            # Run the filter to obtain state estimates
+            filtered_state_means, filtered_state_covariances = kf.filter(observations)
+
             return {
-                'state_means': kf.state_means,
-                'state_covs': kf.state_covariances_,
+                'filtered_state_means': filtered_state_means,
+                'filtered_state_covariances': filtered_state_covariances,
                 'transition_matrix': kf.transition_matrices,
                 'observation_matrix': kf.observation_matrices
             }
@@ -105,9 +109,9 @@ class PairSelector:
         try:
             if kf_params is None:
                 return None
-                
-            # Calculate hedge ratio and spread
-            hedge_ratio = kf_params['state_means'][:, 0]
+
+            # Use the beta component from the filtered state means as hedge ratio
+            hedge_ratio = kf_params['filtered_state_means'][:, 1]
             spread = pair_data.iloc[:, 1] - hedge_ratio * pair_data.iloc[:, 0]
             
             return spread
