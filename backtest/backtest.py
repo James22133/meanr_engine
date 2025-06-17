@@ -615,13 +615,43 @@ class PairsBacktest:
             entry_regime=None,
             stop_loss_k=self.config.stop_loss_k
         )
+        
+        # Add trade to active trades
         self.positions[pair] = trade
         self.trades.append(trade)
-        logger.info(
-            "Opened %s position in %s at %s | stop_loss=%s",
-            direction,
-            pair,
-            date,
-            stop_loss,
-        )
+        
+        # Update positions
+        self._update_positions(trade)
+        
+        # Update equity curve
+        self._update_equity_curve(trade)
+        
+        # Update risk metrics
+        self._update_risk_metrics(trade)
+        
+        # Log trade details
+        self._log_trade_details(trade)
+        
         return trade
+
+    def _update_equity_curve(self, trade: Trade):
+        """Update equity curve with new trade."""
+        # Calculate initial position value
+        position_value = trade.size * (trade.entry_price1 + trade.entry_price2)
+        
+        # Update equity curve
+        self.equity_curve[trade.entry_date] = position_value
+
+    def _update_positions(self, trade: Trade):
+        """Update position tracking."""
+        self.positions[trade.asset1] = trade.size if trade.direction == 'long' else -trade.size
+        self.positions[trade.asset2] = -trade.size if trade.direction == 'long' else trade.size
+
+    def _update_risk_metrics(self, trade: Trade):
+        """Update risk metrics with new trade."""
+        self.current_exposure += trade.size
+        self._check_position_limits()
+
+    def _log_trade_details(self, trade: Trade):
+        """Log detailed trade information."""
+        self.logger.info(f"Trade details: {trade.__dict__}")
