@@ -24,7 +24,7 @@ ETF_TICKERS:
 START_DATE: "2018-01-01"
 END_DATE: "2024-12-31"
 COINTEGRATION_WINDOW: 60
-COINTEGRATION_PVALUE_THRESHOLD: 0.05
+COINTEGRATION_PVALUE_THRESHOLD: 0.15
 ZSCORE_WINDOW: 20
 HMM_N_COMPONENTS: 3
 REGIME_VOLATILITY_WINDOW: 20
@@ -94,7 +94,7 @@ ENTRY_QUANTILE: 0.9
 EXIT_QUANTILE: 0.5
 
 # Minimum Sharpe ratio for pair inclusion
-MIN_PAIR_SHARPE: 1.0
+MIN_PAIR_SHARPE: 0.8
 
 # Regime entry constraint
 REGIME_ENTRY_ONLY: true
@@ -138,3 +138,97 @@ risk_management:
   risk_metrics:
     risk_free_rate: 0.02  # Annual risk-free rate (2%)
     benchmark_sharpe: 1.0  # Benchmark Sharpe ratio for PSR calculation
+
+# Pair Selection and Filtering Parameters
+PAIR_SELECTION:
+  min_correlation: 0.5
+  correlation_window: 60
+  min_spread_stability: 0.4
+  spread_stability_window: 60
+  max_zscore_volatility: 1.8
+  min_cointegration_stability: 0.3
+  stability_lookback: 20
+  min_data_points: 100
+
+# Enhanced scoring weights
+SCORING_WEIGHTS:
+  cointegration: 0.3
+  hurst: 0.2
+  adf: 0.15
+  zscore_vol: 0.15
+  correlation: 0.1
+  spread_stability: 0.1
+
+# Curated Pair Universes
+PAIR_UNIVERSES:
+  energy:
+    description: "Energy sector ETFs"
+    pairs:
+      - ["XLE", "XOM"]
+      - ["XLE", "CVX"]
+      - ["XOM", "CVX"]
+    min_correlation: 0.5
+    min_spread_stability: 0.4
+    max_zscore_volatility: 1.8
+    min_cointegration_stability: 0.3
+
+  bonds:
+    description: "Bond ETFs"
+    pairs:
+      - ["TLT", "IEF"]
+      - ["TLT", "AGG"]
+      - ["IEF", "AGG"]
+    min_correlation: 0.5
+    min_spread_stability: 0.4
+    max_zscore_volatility: 1.8
+    min_cointegration_stability: 0.3
+
+  metals:
+    description: "Precious metals ETFs"
+    pairs:
+      - ["GLD", "SLV"]
+      - ["GLD", "PPLT"]
+      - ["SLV", "PPLT"]
+    min_correlation: 0.5
+    min_spread_stability: 0.4
+    max_zscore_volatility: 1.8
+    min_cointegration_stability: 0.3
+
+  energy_proxy:
+    description: "Energy proxy ETFs"
+    pairs:
+      - ["UNG", "USO"]
+      - ["UNG", "BNO"]
+      - ["USO", "BNO"]
+    min_correlation: 0.5
+    min_spread_stability: 0.4
+    max_zscore_volatility: 1.8
+    min_cointegration_stability: 0.3
+
+  tech:
+    description: "Technology sector ETFs"
+    pairs:
+      - ["XLK", "QQQ"]
+      - ["XLK", "SMH"]
+      - ["QQQ", "SMH"]
+    min_correlation: 0.5
+    min_spread_stability: 0.4
+    max_zscore_volatility: 1.8
+    min_cointegration_stability: 0.3
+
+# Visualization settings
+visualization:
+  save_plots: true
+  plot_types:
+    - "correlation"
+    - "spread"
+    - "zscore"
+    - "cointegration"
+    - "stability"
+  plot_params:
+    correlation_window: 60
+    spread_window: 60
+    zscore_window: 20
+    cointegration_window: 60
+    stability_window: 120
+  output_dir: "reports/plots"

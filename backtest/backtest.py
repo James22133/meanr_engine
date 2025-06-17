@@ -161,44 +161,60 @@ class PairsBacktest:
         active_trades = {}
         
         for date in dates:
-            # Check for exits first
-            for pair, trade in list(active_trades.items()):
-                if self.should_exit_trade(trade, date):
-                    self.close_trade(trade, date)
-                    del active_trades[pair]
+            try:
+                # Check for exits first
+                for pair, trade in list(active_trades.items()):
+                    if self.should_exit_trade(trade, date):
+                        self.close_trade(trade, date)
+                        del active_trades[pair]
 
-            # Check for new entries
-            for pair, signal_df in signals.items():
-                if pair in active_trades:
-                    continue
+                # Check for new entries
+                for pair, signal_df in signals.items():
+                    if pair in active_trades:
+                        continue
 
-                if not self.check_skew_filter(pair, date):
-                    continue
+                    # Skip if signal data is missing for this date
+                    if date not in signal_df.index:
+                        continue
 
-                regime = regimes.loc[date]
-                position_size = self.get_position_size(pair, date, regime)
+                    # Skip if price data is missing for either asset
+                    if pair[0] not in prices.columns or pair[1] not in prices.columns:
+                        continue
+                    if pd.isna(prices.loc[date, pair[0]]) or pd.isna(prices.loc[date, pair[1]]):
+                        continue
 
-                if signal_df.loc[date, 'entry_long']:
-                    entry_price = prices.loc[date, pair[0]]
-                    stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price)
-                    trade = self.open_trade(pair, date, 'long', entry_price,
-                                          stop_loss, position_size)
-                    active_trades[pair] = trade
+                    if not self.check_skew_filter(pair, date):
+                        continue
 
-                elif signal_df.loc[date, 'entry_short']:
-                    entry_price = prices.loc[date, pair[1]]
-                    stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price)
-                    trade = self.open_trade(pair, date, 'short', entry_price,
-                                          stop_loss, position_size)
-                    active_trades[pair] = trade
+                    # Get regime, defaulting to 0 if missing
+                    regime = regimes.get(date, 0)
+                    position_size = self.get_position_size(pair, date, regime)
 
-            # Update open positions and equity curve
-            self._update_positions(date, prices.loc[date])
+                    if signal_df.loc[date, 'entry_long']:
+                        entry_price = prices.loc[date, pair[0]]
+                        stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price)
+                        trade = self.open_trade(pair, date, 'long', entry_price,
+                                              stop_loss, position_size)
+                        active_trades[pair] = trade
 
-            # Equity curve is updated within _update_positions to avoid double counting
+                    elif signal_df.loc[date, 'entry_short']:
+                        entry_price = prices.loc[date, pair[1]]
+                        stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price)
+                        trade = self.open_trade(pair, date, 'short', entry_price,
+                                              stop_loss, position_size)
+                        active_trades[pair] = trade
+
+                # Update open positions and equity curve
+                self._update_positions(date, prices.loc[date])
+
+            except Exception as e:
+                logger.error(f"Error processing date {date}: {str(e)}")
+                continue
 
         # Calculate daily returns
         self.daily_returns = self.equity_curve.pct_change()
+        # Fill any NaN values in daily returns with 0
+        self.daily_returns = self.daily_returns.fillna(0)
     
     def _should_enter_position(self, 
                              pair: Tuple[str, str],
@@ -439,37 +455,43 @@ class PairsBacktest:
         logger.info(f"Saved trade history to {filename}")
 
     def _update_positions(self, date: datetime, prices: pd.Series) -> None:
-        """Update existing positions, check stop-losses, and calculate P&L."""
-        positions_to_close = []
-        for pair, trade in self.positions.items():
-            if trade.exit_date is not None:
-                continue
-            # Volatility-based stop-loss
-            spread = self.prices.loc[date, trade.asset1] - self.prices.loc[date, trade.asset2]
-            spread_series = self.prices[trade.asset1] - self.prices[trade.asset2]
-            spread_vol = spread_series.rolling(20).std().loc[:date].iloc[-1] if date in spread_series.index else None
-            if spread_vol is None or pd.isna(spread_vol):
-                continue
-            k = getattr(trade, 'stop_loss_k', getattr(self.config, 'stop_loss_k', 2.0))
-            stop_loss_long = trade.entry_price1 - trade.entry_price2 - k * spread_vol
-            stop_loss_short = trade.entry_price1 - trade.entry_price2 + k * spread_vol
-            if trade.direction == 'long':
-                if spread <= stop_loss_long:
-                    positions_to_close.append((pair, 'stop_loss'))
-            else:  # short position
-                if spread >= stop_loss_short:
-                    positions_to_close.append((pair, 'stop_loss'))
-        # Close positions that hit stop-loss
-        for pair, reason in positions_to_close:
-            self._close_position(pair, date, prices, reason)
-        # Update daily P&L including realized gains from closed trades
-        idx = self.equity_curve.index.get_loc(date)
-        daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
-        if idx > 0:
-            prev_date = self.equity_curve.index[idx - 1]
-            self.equity_curve.loc[date] = float(self.equity_curve.loc[prev_date]) + float(daily_pnl)
-        else:
-            self.equity_curve.loc[date] = float(self.config.initial_capital) + float(daily_pnl)
+        """Update open positions and equity curve."""
+        try:
+            # Calculate P&L for all open positions
+            daily_pnl = 0.0
+            for pair, trade in self.positions.items():
+                if pair[0] not in prices.index or pair[1] not in prices.index:
+                    continue
+                    
+                current_price1 = prices[pair[0]]
+                current_price2 = prices[pair[1]]
+                
+                if pd.isna(current_price1) or pd.isna(current_price2):
+                    continue
+                    
+                pnl = self.calculate_trade_pnl(trade, current_price1, current_price2)
+                daily_pnl += pnl
+
+            # Update equity curve
+            if date in self.equity_curve.index:
+                if date == self.equity_curve.index[0]:
+                    self.equity_curve.loc[date] = self.initial_capital + daily_pnl
+                else:
+                    prev_equity = self.equity_curve.loc[:date].iloc[-2]
+                    self.equity_curve.loc[date] = prev_equity + daily_pnl
+
+            # Update realized P&L
+            self.realized_pnl.loc[date] = daily_pnl
+
+        except Exception as e:
+            logger.error(f"Error updating positions for date {date}: {str(e)}")
+            # Set default values if update fails
+            if date in self.equity_curve.index:
+                if date == self.equity_curve.index[0]:
+                    self.equity_curve.loc[date] = self.initial_capital
+                else:
+                    self.equity_curve.loc[date] = self.equity_curve.loc[:date].iloc[-2]
+            self.realized_pnl.loc[date] = 0.0
 
     def calculate_stop_loss(self, pair: Tuple[str, str], date: pd.Timestamp, 
                           position_type: str, entry_price: float) -> float:
@@ -562,7 +584,8 @@ class PairsBacktest:
         else:
             self.equity_curve.loc[date] = float(self.config.initial_capital) + float(daily_pnl)
 
-        del self.positions[(trade.asset1, trade.asset2)]
+        # Safely remove position if it exists
+        self.positions.pop((trade.asset1, trade.asset2), None)
         logger.info(
             f"Closed position in {(trade.asset1, trade.asset2)} at {date} with P&L: ${trade.pnl:,.2f}"
         )
