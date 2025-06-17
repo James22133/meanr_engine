@@ -15,7 +15,8 @@ from core import (
     PairSelector,
     BacktestRunner,
     MetricsCalculator,
-    PlotGenerator
+    PlotGenerator,
+    WalkForwardValidator,
 )
 from core import compute_sector_exposure, max_drawdown
 
@@ -72,79 +73,36 @@ def main():
         logger.info("Fetching market data...")
         data_loader.fetch_data()
         
-        # Process each universe
-        all_selected_pairs = []
-        all_pair_metrics = {}
-        
-        for universe_name, universe in config.pair_universes.items():
-            selected_pairs, pair_metrics = process_universe(
-                universe, data_loader, pair_selector
-            )
-            all_selected_pairs.extend(selected_pairs)
-            all_pair_metrics.update(pair_metrics)
-        
-        if not all_selected_pairs:
-            logger.warning("No pairs met the filtering criteria across all universes.")
-            return
-        
-        # Run backtests
-        logger.info("Running backtests...")
-        backtest_results = {}
-        
-        for pair in all_selected_pairs:
-            pair_data = data_loader.get_pair_data(pair)
-            if pair_data is not None:
-                results = backtest_runner.run_backtest(
-                    pair_data, all_pair_metrics[tuple(pair)]
-                )
-                if results is not None:
-                    backtest_results[tuple(pair)] = results
-        
-        # Calculate portfolio metrics
-        portfolio_metrics = metrics_calculator.calculate_portfolio_metrics(backtest_results)
+        # Compile universe pairs
+        universe_pairs: List[tuple] = []
+        for universe in config.pair_universes.values():
+            universe_pairs.extend([tuple(p) for p in universe["pairs"]])
 
-        # Risk analysis
-        all_trades = [t for r in backtest_results.values() for t in r['trades']]
-        exposure = compute_sector_exposure(all_trades, getattr(config, 'SECTOR_MAP', {}))
-        logger.info(f"Sector exposure: {exposure}")
-        for pair, metrics in all_pair_metrics.items():
-            dd = max_drawdown(metrics['spread'].dropna())
-            if dd < -0.1:
-                logger.warning(f"High spread drawdown for {pair}: {dd:.2%}")
-        
-        # Generate plots
-        if args.save_plots:
-            logger.info("Generating plots...")
-            plots_dir = os.path.join(config.plots_dir, datetime.now().strftime('%Y%m%d_%H%M%S'))
-            os.makedirs(plots_dir, exist_ok=True)
-            
-            # Plot pair analysis
-            for pair, metrics in all_pair_metrics.items():
-                pair_data = data_loader.get_pair_data(list(pair))
-                if pair_data is not None:
-                    plot_generator.plot_pair_analysis(
-                        pair_data, metrics,
-                        save_path=os.path.join(plots_dir, f'analysis_{pair[0]}_{pair[1]}.png')
-                    )
-            
-            # Plot backtest results
-            plot_generator.plot_backtest_results(backtest_results, save_dir=plots_dir)
-            
-            # Plot performance metrics
-            plot_generator.plot_performance_metrics(
-                portfolio_metrics,
-                save_path=os.path.join(plots_dir, 'performance_metrics.png')
-            )
-        
-        # Log results
-        logger.info("Backtest completed successfully")
-        logger.info(f"Selected pairs: {all_selected_pairs}")
-        logger.info("Portfolio metrics:")
-        for metric, value in portfolio_metrics.items():
-            if isinstance(value, float):
-                logger.info(f"{metric}: {value:.2%}")
-            else:
-                logger.info(f"{metric}: {value}")
+        # Run walk-forward validation
+        validator = WalkForwardValidator(
+            config,
+            data_loader,
+            pair_selector,
+            backtest_runner,
+            metrics_calculator,
+        )
+
+        fold_results = validator.run(universe_pairs)
+        agg_metrics = validator.aggregate(fold_results)
+
+        for i, fold in enumerate(fold_results, 1):
+            for pair, th in fold["thresholds"].items():
+                logger.info(
+                    f"Fold {i} {pair} entry {th[0]} exit {th[1]}"
+                )
+
+        logger.info("Aggregate walk-forward metrics:")
+        for k, v in agg_metrics.items():
+            if k == "equity_curve":
+                continue
+            logger.info(f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}")
+
+        return
         
     except Exception as e:
         logger.error(f"Error running engine: {str(e)}")
