@@ -16,7 +16,13 @@ class BacktestRunner:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-    def run_backtest(self, pair_data: pd.DataFrame, pair_metrics: Dict) -> Dict:
+    def run_backtest(
+        self,
+        pair_data: pd.DataFrame,
+        pair_metrics: Dict,
+        entry_threshold: Optional[float] = None,
+        exit_threshold: Optional[float] = None,
+    ) -> Dict:
         """
         Run backtest for a single pair.
         
@@ -41,8 +47,10 @@ class BacktestRunner:
             zscore = pair_metrics['zscore']
             
             # Calculate entry/exit thresholds
-            entry_threshold = self._calculate_entry_threshold(zscore)
-            exit_threshold = self._calculate_exit_threshold(zscore)
+            if entry_threshold is None:
+                entry_threshold = self._calculate_entry_threshold(zscore)
+            if exit_threshold is None:
+                exit_threshold = self._calculate_exit_threshold(zscore)
             
             # Run backtest
             position = 0

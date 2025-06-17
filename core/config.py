@@ -50,6 +50,22 @@ class BacktestConfig:
         if self.allowed_entry_regimes is None:
             self.allowed_entry_regimes = ['mean_reverting', 'trending']
 
+
+@dataclass
+class WalkforwardConfig:
+    """Configuration for walk-forward validation parameters."""
+    train_months: int = 24
+    test_months: int = 6
+    z_entry_values: List[float] = None
+    z_exit_values: List[float] = None
+    scoring_metric: str = 'sharpe_ratio'
+
+    def __post_init__(self):
+        if self.z_entry_values is None:
+            self.z_entry_values = [1.0, 1.5, 2.0]
+        if self.z_exit_values is None:
+            self.z_exit_values = [0.5, 0.0]
+
 @dataclass
 class Config:
     """Main configuration class for the trading engine."""
@@ -58,6 +74,7 @@ class Config:
     end_date: str
     pair_selection: PairSelectionConfig
     backtest: BacktestConfig
+    walkforward: WalkforwardConfig
     pair_universes: Dict[str, Dict]
     pair_scoring: PairScoringConfig
     use_cache: bool = False
@@ -83,6 +100,10 @@ class Config:
             # Pair scoring weights
             pair_scoring_cfg = config_dict.get('pair_scoring', {})
             pair_scoring = PairScoringConfig(**pair_scoring_cfg)
+
+            # Walk-forward validation config
+            walkforward_cfg = config_dict.get('walkforward', {}) or {}
+            walkforward = WalkforwardConfig(**walkforward_cfg)
             
             # Create main config
             return cls(
@@ -91,6 +112,7 @@ class Config:
                 end_date=config_dict.get('END_DATE', ''),
                 pair_selection=pair_selection,
                 backtest=backtest,
+                walkforward=walkforward,
                 pair_universes=config_dict.get('PAIR_UNIVERSES', {}),
                 pair_scoring=pair_scoring,
                 use_cache=config_dict.get('use_cache', False),
