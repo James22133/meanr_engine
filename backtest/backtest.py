@@ -351,7 +351,9 @@ class PairsBacktest:
     def rebalance_positions(self, date):
         """Rebalance positions to maintain target volatility."""
         if self.last_rebalance is None or (date - self.last_rebalance).days >= self.rebalance_freq:
-            active_positions = [p for p in self.positions.values() if p.is_active]
+            # Only rebalance open positions. A trade is considered open if it has
+            # no recorded exit date yet.
+            active_positions = [p for p in self.positions.values() if p.exit_date is None]
             if not active_positions:
                 return
             
