@@ -22,29 +22,46 @@ class DataLoader:
         """Fetch market data for all tickers."""
         try:
             self.logger.info("Fetching market data...")
+
             data = {}
-            
-            for ticker in tqdm(self.config.etf_tickers, desc="Fetching data"):
-                try:
-                    ticker_data = yf.download(
-                        ticker,
-                        start=self.config.start_date,
-                        end=self.config.end_date,
-                        progress=False
-                    )
-                    if not ticker_data.empty and ('Close', ticker) in ticker_data.columns:
-                        close_series = ticker_data[('Close', ticker)]
-                        if isinstance(close_series, pd.Series):
-                            data[ticker] = close_series
+
+            raw_data = yf.download(
+                self.config.etf_tickers,
+                start=self.config.start_date,
+                end=self.config.end_date,
+                group_by="ticker",
+                progress=False,
+            )
+
+            if raw_data.empty:
+                raise ValueError("No data fetched for any tickers")
+
+            if isinstance(raw_data.columns, pd.MultiIndex):
+                level0 = raw_data.columns.get_level_values(0)
+                if "Close" in level0:
+                    for ticker in self.config.etf_tickers:
+                        col = ("Close", ticker)
+                        if col in raw_data.columns:
+                            data[ticker] = raw_data[col]
                         else:
-                            self.logger.warning(f"'Close' for {ticker} is not a Series. Skipping.")
-                            self.logger.debug(f"DataFrame structure for {ticker}:\n{ticker_data.info()}")
-                            self.logger.debug(f"DataFrame head for {ticker}:\n{ticker_data.head()}")
-                    else:
-                        self.logger.warning(f"No 'Close' data found for {ticker}")
-                except Exception as e:
-                    self.logger.error(f"Error fetching data for {ticker}: {str(e)}")
-                    continue
+                            self.logger.warning(f"No 'Close' data found for {ticker}")
+                else:
+                    for ticker in self.config.etf_tickers:
+                        col = (ticker, "Close")
+                        if col in raw_data.columns:
+                            data[ticker] = raw_data[col]
+                        else:
+                            self.logger.warning(f"No 'Close' data found for {ticker}")
+            else:
+                if len(self.config.etf_tickers) == 1 and "Close" in raw_data.columns:
+                    ticker = self.config.etf_tickers[0]
+                    data[ticker] = raw_data["Close"]
+                else:
+                    for ticker in self.config.etf_tickers:
+                        if ticker in raw_data.columns:
+                            data[ticker] = raw_data[ticker]
+                        else:
+                            self.logger.warning(f"No data found for {ticker}")
 
             if not data:
                 raise ValueError("No data fetched for any tickers")
