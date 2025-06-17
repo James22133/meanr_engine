@@ -8,6 +8,8 @@ from .pair_selection import PairSelector
 from .backtest_runner import BacktestRunner
 from .metrics import MetricsCalculator
 from .plotting import PlotGenerator
+from .risk import compute_sector_exposure, max_drawdown
+from .cache import save_to_cache, load_from_cache
 
 __all__ = [
     'Config',
@@ -18,4 +20,8 @@ __all__ = [
     'BacktestRunner',
     'MetricsCalculator',
     'PlotGenerator',
-] 
+    'compute_sector_exposure',
+    'max_drawdown',
+    'save_to_cache',
+    'load_from_cache',
+]

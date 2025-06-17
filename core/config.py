@@ -19,6 +19,21 @@ class PairSelectionConfig:
     stability_lookback: int = 20
     min_data_points: int = 100
 
+
+@dataclass
+class PairScoringConfig:
+    """Configuration for pair scoring weights."""
+    weights: Dict[str, float] = None
+
+    def __post_init__(self):
+        if self.weights is None:
+            self.weights = {
+                'correlation': 0.25,
+                'coint_p': 0.25,
+                'hurst': 0.25,
+                'zscore_vol': 0.25,
+            }
+
 @dataclass
 class BacktestConfig:
     """Configuration for backtesting parameters."""
@@ -44,6 +59,9 @@ class Config:
     pair_selection: PairSelectionConfig
     backtest: BacktestConfig
     pair_universes: Dict[str, Dict]
+    pair_scoring: PairScoringConfig
+    use_cache: bool = False
+    force_refresh: bool = False
     data_dir: str = "data"
     reports_dir: str = "reports"
     plots_dir: str = "plots"
@@ -57,10 +75,14 @@ class Config:
             
             # Extract pair selection config
             pair_selection = PairSelectionConfig(**config_dict.get('PAIR_SELECTION', {}))
-            
+
             # Extract backtest config from lowercase key to match config.yaml
             backtest_cfg = config_dict.get('backtest', {}) or {}
             backtest = BacktestConfig(**backtest_cfg)
+
+            # Pair scoring weights
+            pair_scoring_cfg = config_dict.get('pair_scoring', {})
+            pair_scoring = PairScoringConfig(**pair_scoring_cfg)
             
             # Create main config
             return cls(
@@ -69,7 +91,10 @@ class Config:
                 end_date=config_dict.get('END_DATE', ''),
                 pair_selection=pair_selection,
                 backtest=backtest,
-                pair_universes=config_dict.get('PAIR_UNIVERSES', {})
+                pair_universes=config_dict.get('PAIR_UNIVERSES', {}),
+                pair_scoring=pair_scoring,
+                use_cache=config_dict.get('use_cache', False),
+                force_refresh=config_dict.get('force_refresh', False),
             )
         except Exception as e:
             logging.error(f"Error loading config from {yaml_path}: {str(e)}")
