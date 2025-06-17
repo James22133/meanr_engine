@@ -85,7 +85,7 @@ meanr_engine/
 │   └── visualization.py
 ├── data/
 │   └── fetch_data.py
-├── pairs/
+├── core/
 │   └── pair_analysis.py
 ├── regime/
 │   └── regime_detection.py
