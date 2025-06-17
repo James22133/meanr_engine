@@ -4,8 +4,10 @@ Pair analysis module with utility functions for analyzing pairs.
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.stattools import adfuller
-from typing import Tuple, Optional
+import logging
+from statsmodels.tsa.stattools import adfuller, coint
+from pykalman import KalmanFilter
+from typing import Optional, Tuple
 
 def calculate_hurst_exponent(time_series: pd.Series, lags: Optional[list] = None) -> float:
     """
@@ -120,4 +122,152 @@ def calculate_zscore_volatility(zscore: pd.Series, window: int = 60) -> float:
         return zscore.rolling(window).std().mean()
     except Exception as e:
         print(f"Error calculating Z-score volatility: {str(e)}")
-        return float('inf') 
+        return float('inf')
+
+
+def calculate_cointegration(series1: pd.Series, series2: pd.Series) -> Tuple[float, float, Tuple[float, float, float]]:
+    """Return Engle-Granger cointegration test statistics.
+
+    Parameters
+    ----------
+    series1, series2 : pd.Series
+        Time series to test.
+
+    Returns
+    -------
+    tuple
+        ``(t_statistic, p_value, critical_values)``. ``(None, None, None)`` is
+        returned if the input is invalid.
+    """
+
+    if series1.isnull().all() or series2.isnull().all():
+        return None, None, None
+    try:
+        aligned = pd.concat([series1, series2], axis=1).dropna()
+        if len(aligned) < 20:
+            return None, None, None
+        t_stat, p_val, crit = coint(aligned.iloc[:, 0], aligned.iloc[:, 1])
+        return t_stat, p_val, crit
+    except Exception as e:  # pragma: no cover - log and return NaNs
+        logging.getLogger(__name__).error("Error calculating cointegration: %s", e)
+        return None, None, None
+
+
+def apply_kalman_filter(y: pd.Series, X: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
+    """Estimate dynamic hedge ratio using a Kalman filter."""
+
+    aligned = pd.concat([y, X], axis=1).dropna()
+    y_a = aligned.iloc[:, 0].values
+    X_a = aligned.iloc[:, 1].values
+
+    delta = 1e-5
+    trans_cov = delta / (1 - delta) * np.eye(2)
+    obs_mats = np.array([[1, x] for x in X_a]).reshape(-1, 1, 2)
+
+    kf = KalmanFilter(
+        n_dim_obs=1,
+        n_dim_state=2,
+        initial_state_mean=np.zeros(2),
+        initial_state_covariance=np.ones((2, 2)),
+        transition_matrices=np.eye(2),
+        observation_matrices=obs_mats,
+        observation_covariance=1.0,
+        transition_covariance=trans_cov,
+    )
+
+    states, covs = kf.filter(y_a)
+    return states, covs
+
+
+def apply_kalman_filter_rolling(y: pd.Series, X: pd.Series, window: int = 60) -> pd.DataFrame:
+    """Estimate Kalman filter parameters using a rolling window."""
+
+    aligned = pd.concat([y, X], axis=1).dropna()
+    n = len(aligned)
+    states = np.full((n, 2), np.nan)
+
+    for i in range(window, n + 1):
+        sub_y = aligned.iloc[i - window:i, 0]
+        sub_X = aligned.iloc[i - window:i, 1]
+        kf_states, _ = apply_kalman_filter(sub_y, sub_X)
+        states[i - 1] = kf_states[-1]
+
+    return pd.DataFrame(states, index=aligned.index, columns=["alpha", "beta"])
+
+
+def calculate_spread_and_zscore(y: pd.Series, X: pd.Series, states: np.ndarray, rolling_window: int = 20) -> pd.Series:
+    """Return rolling Z-score of the Kalman filter spread."""
+
+    aligned = pd.concat([y, X], axis=1).dropna()
+    y_a = aligned.iloc[:, 0]
+    X_a = aligned.iloc[:, 1]
+    beta = pd.Series(states[:, 1], index=aligned.index)
+    spread = y_a - beta * X_a
+    mean = spread.rolling(window=rolling_window).mean()
+    std = spread.rolling(window=rolling_window).std()
+    return (spread - mean) / std
+
+
+def rolling_cointegration(series1: pd.Series, series2: pd.Series, window: int = 60) -> pd.Series:
+    """Compute rolling Engle-Granger cointegration p-value."""
+
+    pvals = []
+    idxs = []
+    s1 = series1.values
+    s2 = series2.values
+    index = series1.index
+    for i in range(window - 1, len(series1)):
+        w1 = s1[i - window + 1 : i + 1]
+        w2 = s2[i - window + 1 : i + 1]
+        if np.isnan(w1).any() or np.isnan(w2).any():
+            pvals.append(np.nan)
+        else:
+            try:
+                pval = coint(w1, w2)[1]
+            except Exception:
+                pval = np.nan
+            pvals.append(pval)
+        idxs.append(index[i])
+    return pd.Series(pvals, index=idxs)
+
+
+def hurst_exponent(ts: pd.Series, min_lag: int = 2, max_lag: int = 20) -> float:
+    """Estimate the Hurst exponent of a time series."""
+
+    lags = range(min_lag, max_lag)
+    tau = [np.std(np.subtract(ts[lag:], ts[:-lag])) for lag in lags]
+    poly = np.polyfit(np.log(lags), np.log(tau), 1)
+    return poly[0] * 2.0
+
+
+def adf_pvalue(series: pd.Series) -> float:
+    """Return the p-value from the Augmented Dickey-Fuller test."""
+
+    try:
+        return adfuller(series.dropna())[1]
+    except Exception:
+        return np.nan
+
+
+def rolling_hurst(series: pd.Series, window: int = 60) -> pd.Series:
+    """Compute rolling Hurst exponent for a time series."""
+
+    def hurst_win(x: np.ndarray) -> float:
+        lags = range(2, 20)
+        tau = [np.std(np.subtract(x[lag:], x[:-lag])) for lag in lags]
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+        return poly[0] * 2.0
+
+    return series.rolling(window=window, min_periods=window).apply(hurst_win, raw=True)
+
+
+def rolling_adf(series: pd.Series, window: int = 60) -> pd.Series:
+    """Compute rolling ADF p-value for a time series."""
+
+    def adf_win(x: np.ndarray) -> float:
+        try:
+            return adfuller(x)[1]
+        except Exception:
+            return np.nan
+
+    return series.rolling(window=window, min_periods=window).apply(adf_win, raw=True)
