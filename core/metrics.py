@@ -102,7 +102,16 @@ class MetricsCalculator:
         """Calculate trade-level metrics."""
         try:
             if not trades:
-                return {}
+                return {
+                    'total_trades': 0,
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate': 0.0,
+                    'avg_return': 0.0,
+                    'avg_win': 0.0,
+                    'avg_loss': 0.0,
+                    'profit_factor': 0.0,
+                }
             
             # Calculate trade returns
             trade_returns = []
@@ -112,7 +121,16 @@ class MetricsCalculator:
                     trade_returns.append(returns)
             
             if not trade_returns:
-                return {}
+                return {
+                    'total_trades': len(trades),
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate': 0.0,
+                    'avg_return': 0.0,
+                    'avg_win': 0.0,
+                    'avg_loss': 0.0,
+                    'profit_factor': 0.0,
+                }
             
             # Calculate metrics
             trade_returns = np.array(trade_returns)
