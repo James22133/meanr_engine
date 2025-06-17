@@ -58,8 +58,9 @@ class Config:
             # Extract pair selection config
             pair_selection = PairSelectionConfig(**config_dict.get('PAIR_SELECTION', {}))
             
-            # Extract backtest config
-            backtest = BacktestConfig(**config_dict.get('BACKTEST', {}))
+            # Extract backtest config from lowercase key to match config.yaml
+            backtest_cfg = config_dict.get('backtest', {}) or {}
+            backtest = BacktestConfig(**backtest_cfg)
             
             # Create main config
             return cls(
