@@ -2,13 +2,17 @@
 Pair selection module for analyzing and selecting trading pairs.
 """
 
+import os
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 import logging
+from multiprocessing import Pool
+from functools import partial
 from statsmodels.tsa.stattools import coint
 from pykalman import KalmanFilter
 from .pair_analysis import calculate_hurst_exponent, calculate_adf
+from .cache import save_to_cache, load_from_cache
 
 class PairSelector:
     """Class for analyzing and selecting trading pairs."""
@@ -21,6 +25,7 @@ class PairSelector:
     def calculate_pair_metrics(self, pair_data: pd.DataFrame) -> Dict:
         """Calculate metrics for a pair of assets."""
         try:
+            pair_key = f"{pair_data.columns[0]}_{pair_data.columns[1]}"
             # Calculate correlation
             correlation = pair_data.corr().iloc[0, 1]
             
@@ -28,7 +33,7 @@ class PairSelector:
             coint_pvalue = self._calculate_cointegration(pair_data)
             
             # Calculate Kalman filter parameters
-            kf_params = self._calculate_kalman_params(pair_data)
+            kf_params = self._calculate_kalman_params(pair_data, pair_key)
             
             # Calculate spread
             spread = self._calculate_spread(pair_data, kf_params)
@@ -37,7 +42,7 @@ class PairSelector:
             stability = self._calculate_stability_metrics(spread)
             
             # Calculate Z-score
-            zscore = self._calculate_zscore(spread)
+            zscore = self._calculate_zscore(spread, pair_key)
             
             # Calculate composite score
             score = self._calculate_composite_score(
@@ -71,9 +76,13 @@ class PairSelector:
             self.logger.error(f"Error calculating cointegration: {str(e)}")
             return 1.0
 
-    def _calculate_kalman_params(self, pair_data: pd.DataFrame) -> Dict:
+    def _calculate_kalman_params(self, pair_data: pd.DataFrame, pair_key: str = "") -> Dict:
         """Calculate Kalman filter parameters."""
         try:
+            cache_file = os.path.join(self.config.data_dir, f"kalman_{pair_key}.pkl")
+            if self.config.use_cache and os.path.exists(cache_file) and not self.config.force_refresh:
+                return load_from_cache(cache_file)
+
             # Initialize Kalman filter
             kf = KalmanFilter(
                 n_dim_obs=1,
@@ -93,12 +102,17 @@ class PairSelector:
             # Run the filter to obtain state estimates
             filtered_state_means, filtered_state_covariances = kf.filter(observations)
 
-            return {
+            result = {
                 'filtered_state_means': filtered_state_means,
                 'filtered_state_covariances': filtered_state_covariances,
                 'transition_matrix': kf.transition_matrices,
                 'observation_matrix': kf.observation_matrices
             }
+
+            if self.config.use_cache:
+                save_to_cache(result, cache_file)
+
+            return result
             
         except Exception as e:
             self.logger.error(f"Error calculating Kalman parameters: {str(e)}")
@@ -139,13 +153,22 @@ class PairSelector:
             self.logger.error(f"Error calculating stability metrics: {str(e)}")
             return 0.0
 
-    def _calculate_zscore(self, spread: pd.Series) -> pd.Series:
+    def _calculate_zscore(self, spread: pd.Series, pair_key: str = "") -> pd.Series:
         """Calculate Z-score of the spread."""
         try:
             if spread is None:
                 return None
-                
-            return (spread - spread.mean()) / spread.std()
+
+            cache_file = os.path.join(self.config.data_dir, f"zscore_{pair_key}.pkl")
+            if self.config.use_cache and os.path.exists(cache_file) and not self.config.force_refresh:
+                return load_from_cache(cache_file)
+
+            z = (spread - spread.mean()) / spread.std()
+
+            if self.config.use_cache:
+                save_to_cache(z, cache_file)
+
+            return z
             
         except Exception as e:
             self.logger.error(f"Error calculating Z-score: {str(e)}")
@@ -161,12 +184,17 @@ class PairSelector:
             norm_stability = max(0, stability)
             norm_vol = 1 - min(1, zscore_vol / self.config.pair_selection.max_zscore_volatility)
             
-            # Calculate weighted score
+            weights = getattr(self.config.pair_scoring, 'weights', {})
+            corr_w = weights.get('correlation', 0.25)
+            coint_w = weights.get('coint_p', 0.25)
+            hurst_w = weights.get('hurst', 0.25)
+            vol_w = weights.get('zscore_vol', 0.25)
+
             score = (
-                0.3 * norm_correlation +
-                0.3 * norm_coint +
-                0.2 * norm_stability +
-                0.2 * norm_vol
+                corr_w * norm_correlation +
+                coint_w * norm_coint +
+                hurst_w * norm_stability +
+                vol_w * norm_vol
             )
             
             return score
@@ -174,6 +202,54 @@ class PairSelector:
         except Exception as e:
             self.logger.error(f"Error calculating composite score: {str(e)}")
             return 0.0
+
+    def validate_pair_stability(
+        self,
+        pair_data: pd.DataFrame,
+        train_window: int = 90,
+        test_window: int = 30,
+    ) -> Tuple[bool, List[Dict[str, float]]]:
+        """Perform rolling out-of-sample validation and flag instability."""
+        metrics = []
+        pair_key = f"{pair_data.columns[0]}_{pair_data.columns[1]}"
+        for start in range(0, len(pair_data) - train_window - test_window + 1, test_window):
+            train = pair_data.iloc[start : start + train_window]
+            test = pair_data.iloc[start + train_window : start + train_window + test_window]
+            kf_train = self._calculate_kalman_params(train, pair_key + f"_tr{start}")
+            spread_test = self._calculate_spread(test, kf_train)
+            if spread_test is None or spread_test.std() == 0:
+                continue
+            returns = spread_test.diff().dropna()
+            sharpe = (np.sqrt(252) * returns.mean() / returns.std()) if returns.std() != 0 else 0
+            cum = returns.cumsum()
+            dd = (cum - cum.cummax()).min()
+            metrics.append({'sharpe': sharpe, 'max_drawdown': dd})
+
+        unstable = any(m['sharpe'] < 0 or m['max_drawdown'] < -0.1 for m in metrics)
+        return unstable, metrics
+
+    def _score_single(self, pair: Tuple[str, str], data_loader) -> Tuple[Tuple[str, str], Optional[Dict]]:
+        """Helper for parallel scoring."""
+        try:
+            pair_data = data_loader.get_pair_data(list(pair))
+            if pair_data is None:
+                return pair, None
+            metrics = self.calculate_pair_metrics(pair_data)
+            return pair, metrics
+        except Exception as e:
+            self.logger.error(f"Error scoring pair {pair}: {e}")
+            return pair, None
+
+    def score_pairs_parallel(self, pairs: List[Tuple[str, str]], data_loader) -> Dict[Tuple[str, str], Dict]:
+        """Score multiple pairs in parallel."""
+        pair_metrics: Dict[Tuple[str, str], Dict] = {}
+        with Pool() as pool:
+            func = partial(self._score_single, data_loader=data_loader)
+            results = pool.map(func, pairs)
+        for pair, metrics in results:
+            if metrics is not None:
+                pair_metrics[pair] = metrics
+        return pair_metrics
 
     def select_pairs(self, pair_metrics: Dict[str, Dict]) -> List[Tuple[str, str]]:
         """Select pairs based on metrics and configuration."""

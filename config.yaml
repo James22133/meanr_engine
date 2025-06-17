@@ -23,6 +23,8 @@ ETF_TICKERS:
   - "OXY"
 START_DATE: "2018-01-01"
 END_DATE: "2024-12-31"
+use_cache: false
+force_refresh: false
 COINTEGRATION_WINDOW: 60
 COINTEGRATION_PVALUE_THRESHOLD: 0.15
 ZSCORE_WINDOW: 20
@@ -158,6 +160,13 @@ SCORING_WEIGHTS:
   zscore_vol: 0.15
   correlation: 0.1
   spread_stability: 0.1
+
+pair_scoring:
+  weights:
+    correlation: 0.25
+    coint_p: 0.25
+    hurst: 0.25
+    zscore_vol: 0.25
 
 # Curated Pair Universes
 PAIR_UNIVERSES:

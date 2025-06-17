@@ -17,6 +17,7 @@ from core import (
     MetricsCalculator,
     PlotGenerator
 )
+from core import compute_sector_exposure, max_drawdown
 
 def setup_logging():
     """Set up logging configuration."""
@@ -37,21 +38,8 @@ def process_universe(universe: Dict, data_loader: DataLoader,
     logger.info(f"Processing universe: {universe['description']}")
     
     selected_pairs = []
-    pair_metrics = {}
-    
-    # Process each pair in the universe
-    for pair in universe['pairs']:
-        # Get pair data
-        pair_data = data_loader.get_pair_data(pair)
-        if pair_data is None:
-            continue
-        
-        # Calculate pair metrics
-        metrics = pair_selector.calculate_pair_metrics(pair_data)
-        if metrics is None:
-            continue
-        
-        pair_metrics[tuple(pair)] = metrics
+    pair_list = [tuple(p) for p in universe['pairs']]
+    pair_metrics = pair_selector.score_pairs_parallel(pair_list, data_loader)
     
     # Select pairs based on metrics
     selected_pairs = pair_selector.select_pairs(pair_metrics)
@@ -114,6 +102,15 @@ def main():
         
         # Calculate portfolio metrics
         portfolio_metrics = metrics_calculator.calculate_portfolio_metrics(backtest_results)
+
+        # Risk analysis
+        all_trades = [t for r in backtest_results.values() for t in r['trades']]
+        exposure = compute_sector_exposure(all_trades, getattr(config, 'SECTOR_MAP', {}))
+        logger.info(f"Sector exposure: {exposure}")
+        for pair, metrics in all_pair_metrics.items():
+            dd = max_drawdown(metrics['spread'].dropna())
+            if dd < -0.1:
+                logger.warning(f"High spread drawdown for {pair}: {dd:.2%}")
         
         # Generate plots
         if args.save_plots:

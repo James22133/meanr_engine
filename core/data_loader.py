@@ -2,12 +2,14 @@
 Data loader module for fetching and processing market data.
 """
 
+import os
 import pandas as pd
 import numpy as np
 import yfinance as yf
 from typing import Dict, List, Optional
 import logging
 from tqdm import tqdm
+from .cache import save_to_cache, load_from_cache
 
 class DataLoader:
     """Class for loading and preprocessing market data."""
@@ -22,6 +24,13 @@ class DataLoader:
         """Fetch market data for all tickers."""
         try:
             self.logger.info("Fetching market data...")
+
+            cache_file = os.path.join(self.config.data_dir, "market_data.pkl")
+            if self.config.use_cache and os.path.exists(cache_file) and not self.config.force_refresh:
+                self.logger.info("Loading data from cache")
+                self.data = load_from_cache(cache_file)
+                self._log_data_quality()
+                return self.data
 
             data = {}
 
@@ -71,7 +80,10 @@ class DataLoader:
             
             # Log data quality metrics
             self._log_data_quality()
-            
+
+            if self.config.use_cache:
+                save_to_cache(self.data, cache_file)
+
             return self.data
 
         except Exception as e:
