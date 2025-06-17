@@ -108,9 +108,12 @@ ALLOWED_ENTRY_REGIMES: [0, 1]
 min_days_between_trades: 5
 
 # Walk-forward validation parameters
-WALKFORWARD_TRAIN_MONTHS: 18
-WALKFORWARD_TEST_MONTHS: 6
-WALKFORWARD_STEP_MONTHS: 6
+walkforward:
+  train_months: 24
+  test_months: 6
+  z_entry_values: [1.0, 1.5, 2.0]
+  z_exit_values: [0.5, 0.0]
+  scoring_metric: sharpe_ratio
 
 risk_management:
   # Stop-loss settings
