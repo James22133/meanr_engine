@@ -6,7 +6,7 @@ import os
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import logging
 from tqdm import tqdm
 from .cache import save_to_cache, load_from_cache
@@ -20,74 +20,44 @@ class DataLoader:
         self.data = None
         self.logger = logging.getLogger(__name__)
 
-    def fetch_data(self) -> pd.DataFrame:
-        """Fetch market data for all tickers."""
+    def fetch_data(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """Fetch market data for a list of tickers."""
         try:
-            self.logger.info("Fetching market data...")
-
-            cache_file = os.path.join(self.config.data_dir, "market_data.pkl")
-            if self.config.use_cache and os.path.exists(cache_file) and not self.config.force_refresh:
-                self.logger.info("Loading data from cache")
-                self.data = load_from_cache(cache_file)
-                self._log_data_quality()
-                return self.data
-
-            data = {}
-
-            raw_data = yf.download(
-                self.config.etf_tickers,
-                start=self.config.start_date,
-                end=self.config.end_date,
-                group_by="ticker",
-                progress=False,
-            )
-
-            if raw_data.empty:
-                raise ValueError("No data fetched for any tickers")
-
-            if isinstance(raw_data.columns, pd.MultiIndex):
-                level0 = raw_data.columns.get_level_values(0)
-                if "Close" in level0:
-                    for ticker in self.config.etf_tickers:
-                        col = ("Close", ticker)
-                        if col in raw_data.columns:
-                            data[ticker] = raw_data[col]
-                        else:
-                            self.logger.warning(f"No 'Close' data found for {ticker}")
-                else:
-                    for ticker in self.config.etf_tickers:
-                        col = (ticker, "Close")
-                        if col in raw_data.columns:
-                            data[ticker] = raw_data[col]
-                        else:
-                            self.logger.warning(f"No 'Close' data found for {ticker}")
-            else:
-                if len(self.config.etf_tickers) == 1 and "Close" in raw_data.columns:
-                    ticker = self.config.etf_tickers[0]
-                    data[ticker] = raw_data["Close"]
-                else:
-                    for ticker in self.config.etf_tickers:
-                        if ticker in raw_data.columns:
-                            data[ticker] = raw_data[ticker]
-                        else:
-                            self.logger.warning(f"No data found for {ticker}")
-
-            if not data:
-                raise ValueError("No data fetched for any tickers")
-
-            # Convert to DataFrame
-            self.data = pd.DataFrame(data)
+            self.logger.info(f"Fetching market data for {len(tickers)} tickers...")
             
-            # Log data quality metrics
-            self._log_data_quality()
-
-            if self.config.use_cache:
-                save_to_cache(self.data, cache_file)
-
-            return self.data
-
+            # Fetch data for all tickers
+            data = yf.download(tickers, start=start_date, end=end_date, progress=False)
+            
+            # Check for missing tickers
+            missing_tickers = []
+            for ticker in tickers:
+                if ticker not in data['Close'].columns:
+                    missing_tickers.append(ticker)
+                    self.logger.warning(f"Ticker {ticker} not found in data")
+            
+            if missing_tickers:
+                self.logger.warning(f"Missing tickers: {', '.join(missing_tickers)}")
+            
+            # Get closing prices
+            close_prices = data['Close']
+            
+            # Log data shape and date range
+            self.logger.info(f"Data shape: {close_prices.shape}")
+            self.logger.info(f"Date range: {close_prices.index[0]} to {close_prices.index[-1]}")
+            
+            # Check for missing values
+            missing_values = close_prices.isnull().sum()
+            if missing_values.any():
+                self.logger.warning("Missing values per column:")
+                self.logger.warning(missing_values[missing_values > 0])
+            
+            # Store the fetched data in self.data
+            self.data = close_prices
+            
+            return close_prices
+            
         except Exception as e:
-            self.logger.error(f"Error in fetch_data: {str(e)}")
+            self.logger.error(f"Error fetching market data: {str(e)}")
             raise
 
     def _log_data_quality(self):
@@ -97,22 +67,27 @@ class DataLoader:
             self.logger.info(f"Date range: {self.data.index[0]} to {self.data.index[-1]}")
             self.logger.info(f"Missing values per column:\n{self.data.isnull().sum()}")
 
-    def get_pair_data(self, pair: List[str]) -> Optional[pd.DataFrame]:
-        """Get data for a specific pair of tickers."""
+    def get_pair_data(self, pair):
+        """Retrieve data for a specific pair of tickers, with robust error handling."""
         if self.data is None:
-            raise ValueError("Data not loaded. Call fetch_data() first.")
-        
-        try:
-            pair_data = self.data[pair].copy()
-            if pair_data.isnull().any().any():
-                self.logger.warning(f"Missing values found in pair {pair}")
-                pair_data = pair_data.dropna()
-            
-            if len(pair_data) < self.config.pair_selection.min_data_points:
-                self.logger.warning(f"Insufficient data points for pair {pair}")
+            self.logger.error(f"No data loaded. Cannot get pair data for {pair}.")
+            return None
+        asset1, asset2 = pair
+        # Log available columns for debugging
+        self.logger.debug(f"Available columns: {self.data.columns}")
+        missing = [a for a in (asset1, asset2) if a not in self.data.columns]
+        if missing:
+            self.logger.warning(f"Missing tickers in data: {missing} for pair {pair}")
+            return None
+        pair_data = self.data[[asset1, asset2]].copy()
+        # Check for all-NaN columns
+        for a in (asset1, asset2):
+            if pair_data[a].isna().all():
+                self.logger.warning(f"All data is NaN for {a} in pair {pair}")
                 return None
-                
-            return pair_data
-        except Exception as e:
-            self.logger.error(f"Error getting pair data for {pair}: {str(e)}")
-            return None 
+        # Forward/backward fill if needed
+        pair_data = pair_data.ffill().bfill()
+        if pair_data.isna().any().any():
+            self.logger.warning(f"Still missing values after fill for pair {pair}")
+            return None
+        return pair_data 

@@ -79,6 +79,7 @@ class PairsBacktest:
         self.max_concurrent_positions = config.max_concurrent_positions
         self.regime_stats = {0: [], 1: [], 2: []}  # Track returns by regime
         self.initial_capital = config.initial_capital
+        self.current_exposure = 0.0  # Add missing attribute
         # Support either dataclass or dict configs
         if isinstance(config, dict):
             self.risk_config = config.get('risk_management', {})
@@ -159,6 +160,7 @@ class PairsBacktest:
         target_profit_pct = getattr(self.config, 'target_profit_pct', None)
 
         active_trades = {}
+        error_count = 0  # Track errors to avoid excessive logging
         
         for date in dates:
             try:
@@ -205,10 +207,12 @@ class PairsBacktest:
                         active_trades[pair] = trade
 
                 # Update open positions and equity curve
-                self._update_positions(date, prices.loc[date])
+                self._update_positions(date)
 
             except Exception as e:
-                logger.error(f"Error processing date {date}: {str(e)}")
+                error_count += 1
+                if error_count <= 5:  # Only log first 5 errors
+                    logger.error(f"Error processing date {date}: {str(e)}")
                 continue
 
         # Calculate daily returns
@@ -456,17 +460,17 @@ class PairsBacktest:
         trades_df.to_csv(filename, index=False)
         logger.info(f"Saved trade history to {filename}")
 
-    def _update_positions(self, date: datetime, prices: pd.Series) -> None:
+    def _update_positions(self, date: datetime) -> None:
         """Update open positions and equity curve."""
         try:
             # Calculate P&L for all open positions
             daily_pnl = 0.0
             for pair, trade in self.positions.items():
-                if pair[0] not in prices.index or pair[1] not in prices.index:
+                if pair[0] not in self.prices.columns or pair[1] not in self.prices.columns:
                     continue
                     
-                current_price1 = prices[pair[0]]
-                current_price2 = prices[pair[1]]
+                current_price1 = self.prices.loc[date, pair[0]]
+                current_price2 = self.prices.loc[date, pair[1]]
                 
                 if pd.isna(current_price1) or pd.isna(current_price2):
                     continue
@@ -623,7 +627,7 @@ class PairsBacktest:
         self.trades.append(trade)
         
         # Update positions
-        self._update_positions(trade)
+        self._update_positions(date)
         
         # Update equity curve
         self._update_equity_curve(trade)
@@ -644,16 +648,10 @@ class PairsBacktest:
         # Update equity curve
         self.equity_curve[trade.entry_date] = position_value
 
-    def _update_positions(self, trade: Trade):
-        """Update position tracking."""
-        self.positions[trade.asset1] = trade.size if trade.direction == 'long' else -trade.size
-        self.positions[trade.asset2] = -trade.size if trade.direction == 'long' else trade.size
-
     def _update_risk_metrics(self, trade: Trade):
         """Update risk metrics with new trade."""
         self.current_exposure += trade.size
-        self._check_position_limits()
 
     def _log_trade_details(self, trade: Trade):
         """Log detailed trade information."""
-        self.logger.info(f"Trade details: {trade.__dict__}")
+        logger.info(f"Trade details: {trade.__dict__}")

@@ -251,36 +251,37 @@ class PairSelector:
                 pair_metrics[pair] = metrics
         return pair_metrics
 
-    def select_pairs(self, pair_metrics: Dict[str, Dict]) -> List[Tuple[str, str]]:
-        """Select pairs based on metrics and configuration."""
+    def select_pairs(self, pair_metrics: Dict) -> List[Tuple[str, str]]:
+        """Select pairs based on calculated metrics and configuration criteria."""
+        if not pair_metrics:
+            self.logger.warning("No pairs met filtering criteria. Selecting top 3 by score.")
+            return []
+        
+        # Sort pairs by score
+        sorted_pairs = sorted(pair_metrics.items(), key=lambda x: x[1]['score'], reverse=True)
+        
+        # Select top pairs
+        selected_pairs = [pair for pair, _ in sorted_pairs[:3]]
+        
+        self.logger.info(f"Selected {len(selected_pairs)} pairs: {selected_pairs}")
+        return selected_pairs
+
+    def generate_signals(self, pair_data: pd.DataFrame) -> pd.DataFrame:
+        """Generate trading signals for a pair."""
         try:
-            selected_pairs = []
+            # Calculate spread and z-score
+            spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
+            z_score = (spread - spread.rolling(20).mean()) / spread.rolling(20).std()
             
-            for pair, metrics in pair_metrics.items():
-                if metrics is None:
-                    continue
-                    
-                # Check if pair meets criteria
-                if (metrics['correlation'] >= self.config.pair_selection.min_correlation and
-                    metrics['spread_stability'] >= self.config.pair_selection.min_spread_stability and
-                    metrics['zscore_volatility'] <= self.config.pair_selection.max_zscore_volatility):
-                    
-                    selected_pairs.append((pair, metrics['score']))
+            # Generate signals
+            signals = pd.DataFrame(index=pair_data.index)
+            signals['z_score'] = z_score
+            signals['entry_long'] = z_score < -2.0  # Long when spread is low
+            signals['entry_short'] = z_score > 2.0   # Short when spread is high
+            signals['exit'] = (z_score >= -0.5) & (z_score <= 0.5)  # Exit when mean-reverting
             
-            # Sort by score and select top pairs
-            selected_pairs.sort(key=lambda x: x[1], reverse=True)
-            
-            # If no pairs meet criteria, select top 3 by score
-            if not selected_pairs:
-                self.logger.warning("No pairs met filtering criteria. Selecting top 3 by score.")
-                selected_pairs = sorted(
-                    [(p, m['score']) for p, m in pair_metrics.items() if m is not None],
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:3]
-            
-            return [p[0] for p in selected_pairs]
+            return signals
             
         except Exception as e:
-            self.logger.error(f"Error selecting pairs: {str(e)}")
-            return [] 
+            self.logger.error(f"Error generating signals: {str(e)}")
+            return pd.DataFrame() 

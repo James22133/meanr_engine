@@ -37,18 +37,17 @@ class PairScoringConfig:
 @dataclass
 class BacktestConfig:
     """Configuration for backtesting parameters."""
-    initial_capital: float = 100000.0
-    max_position_size: float = 0.2
-    stop_loss_pct: float = 0.02
-    take_profit_pct: float = 0.03
-    max_drawdown: float = 0.15
-    allowed_entry_regimes: List[str] = None
-    regime_lookback: int = 20
-    regime_threshold: float = 0.6
-
-    def __post_init__(self):
-        if self.allowed_entry_regimes is None:
-            self.allowed_entry_regimes = ['mean_reverting', 'trending']
+    initial_capital: float = 1_000_000
+    target_volatility: float = 0.10  # 10% annualized
+    slippage_bps: float = 2.0
+    commission_bps: float = 1.0
+    stop_loss_k: float = 2.0  # Multiplier for volatility-based stop-loss
+    zscore_entry_threshold: float = 2.0
+    zscore_exit_threshold: float = 0.1
+    max_hold_days: Optional[int] = None
+    target_profit_pct: Optional[float] = None
+    rebalance_freq: int = 21  # Default to weekly rebalancing
+    max_concurrent_positions: int = 5  # Default to 5 positions
 
 
 @dataclass

@@ -21,6 +21,13 @@ ETF_TICKERS:
   - "ET"
   - "EPD"
   - "OXY"
+  - "XLE"  # Energy Sector ETF
+  - "AGG"  # Aggregate Bond ETF
+  - "PPLT" # Platinum ETF
+  - "UNG"  # Natural Gas ETF
+  - "BNO"  # Brent Oil ETF
+  - "XLK"  # Technology Sector ETF
+  - "SMH"  # Semiconductor ETF
 START_DATE: "2018-01-01"
 END_DATE: "2024-12-31"
 use_cache: false
