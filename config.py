@@ -11,6 +11,7 @@ def load_config(path: str = "config.yaml") -> dict:
         cfg = yaml.safe_load(f)
 
     backtest_cfg = cfg.get("backtest", {}) or {}
+    backtest_cfg["risk_control"] = cfg.get("risk_control", {})
     cfg["backtest"] = BacktestConfig(**backtest_cfg)
 
     return cfg
