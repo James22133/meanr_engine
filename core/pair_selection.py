@@ -273,12 +273,25 @@ class PairSelector:
             spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
             z_score = (spread - spread.rolling(20).mean()) / spread.rolling(20).std()
             
+            # Get thresholds from config or use defaults
+            entry_threshold = getattr(self.config, 'zscore_entry_threshold', 1.5)
+            exit_threshold = getattr(self.config, 'zscore_exit_threshold', 0.5)
+            
             # Generate signals
             signals = pd.DataFrame(index=pair_data.index)
             signals['z_score'] = z_score
-            signals['entry_long'] = z_score < -2.0  # Long when spread is low
-            signals['entry_short'] = z_score > 2.0   # Short when spread is high
-            signals['exit'] = (z_score >= -0.5) & (z_score <= 0.5)  # Exit when mean-reverting
+            signals['entry_long'] = z_score < -entry_threshold  # Long when spread is low
+            signals['entry_short'] = z_score > entry_threshold   # Short when spread is high
+            signals['exit'] = (z_score >= -exit_threshold) & (z_score <= exit_threshold)  # Exit when mean-reverting
+            
+            # Debug: Log signal statistics
+            long_signals = signals['entry_long'].sum()
+            short_signals = signals['entry_short'].sum()
+            exit_signals = signals['exit'].sum()
+            
+            self.logger.debug(f"Generated signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
+            self.logger.debug(f"Z-score range: {z_score.min():.2f} to {z_score.max():.2f}")
+            self.logger.debug(f"Using thresholds - Entry: {entry_threshold}, Exit: {exit_threshold}")
             
             return signals
             

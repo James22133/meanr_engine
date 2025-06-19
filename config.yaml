@@ -114,6 +114,25 @@ ALLOWED_ENTRY_REGIMES: [0, 1]
 # Risk Management
 min_days_between_trades: 5
 
+# Risk Control Configuration
+risk_control:
+  # ATR-based stop loss settings
+  atr_multiplier: 2.0  # Multiplier for ATR-based stop loss
+  atr_period: 14  # Period for ATR calculation
+  
+  # Drawdown limits
+  max_drawdown_per_pair: 0.05  # Maximum 5% drawdown per pair
+  max_drawdown_per_trade: 0.02  # Maximum 2% drawdown per trade
+  
+  # Position sizing and exposure limits
+  max_pair_exposure: 0.1  # Maximum 10% exposure per pair
+  volatility_scaling: true  # Enable volatility-based position scaling
+  
+  # Additional risk parameters
+  max_concurrent_trades_per_pair: 2  # Maximum concurrent trades per pair
+  min_risk_reward_ratio: 1.5  # Minimum risk/reward ratio for trade entry
+  max_correlation_exposure: 0.3  # Maximum exposure to highly correlated pairs
+
 # Walk-forward validation parameters
 walkforward:
   train_months: 24

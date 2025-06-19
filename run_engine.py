@@ -16,6 +16,7 @@ from core.pair_selection import PairSelector
 from backtest.backtest import PairsBacktest
 from core.metrics import MetricsCalculator
 from core.plotting import PlotGenerator
+from core.diagnostics import TradeDiagnostics
 from core import compute_sector_exposure, max_drawdown
 
 def parse_args():
@@ -52,7 +53,7 @@ def main():
         # Initialize components
         data_loader = DataLoader(config)
         pair_selector = PairSelector(config)
-        backtest_runner = PairsBacktest(config.backtest)
+        backtest_runner = PairsBacktest(config.backtest, data_loader)
         metrics_calculator = MetricsCalculator(config)
         plot_generator = PlotGenerator(config)
         
@@ -131,6 +132,12 @@ def main():
         # Calculate portfolio metrics
         portfolio_metrics = metrics_calculator.calculate_portfolio_metrics(backtest_results)
         
+        # Initialize diagnostics module
+        diagnostics = TradeDiagnostics(config)
+        
+        # Generate diagnostic report
+        diagnostic_results = diagnostics.generate_diagnostic_report(backtest_results)
+        
         # Generate plots
         logger.info("Generating plots...")
         if args.save_plots:
@@ -147,85 +154,74 @@ def main():
         logger.info(f"Selected pairs: {selected_pairs}")
         logger.info(f"Total pairs analyzed: {len(pair_metrics)}")
         
-        # Log portfolio performance
-        if portfolio_metrics:
-            logger.info("\n" + "=" * 50)
-            logger.info("PORTFOLIO PERFORMANCE METRICS")
-            logger.info("=" * 50)
+        # Log portfolio metrics
+        logger.info(f"Initial Capital: ${portfolio_metrics['initial_capital']:,.2f}")
+        logger.info(f"Final Capital: ${portfolio_metrics['final_capital']:,.2f}")
+        logger.info(f"Total PnL: ${portfolio_metrics['total_pnl']:,.2f}")
+        logger.info(f"Total Return: {portfolio_metrics['total_return']:.2%}")
+        logger.info(f"Annualized Return: {portfolio_metrics['annualized_return']:.2%}")
+        logger.info(f"Sharpe Ratio: {portfolio_metrics['sharpe_ratio']:.3f}")
+        logger.info(f"Maximum Drawdown: {portfolio_metrics['max_drawdown']:.2%}")
+        
+        # Log trading statistics
+        logger.info(f"Total Trades: {portfolio_metrics['total_trades']}")
+        logger.info(f"Winning Trades: {portfolio_metrics['winning_trades']}")
+        logger.info(f"Losing Trades: {portfolio_metrics['losing_trades']}")
+        logger.info(f"Win Rate: {portfolio_metrics['win_rate']:.2%}")
+        logger.info(f"Average Win: ${portfolio_metrics['avg_win']:.2f}")
+        logger.info(f"Average Loss: ${portfolio_metrics['avg_loss']:.2f}")
+        logger.info(f"Profit Factor: {portfolio_metrics['profit_factor']:.3f}")
+        logger.info(f"Average Holding Period: {portfolio_metrics['avg_holding_period']:.1f} days")
+        
+        # Log loss attribution by pair
+        if diagnostic_results and 'pair_performance' in diagnostic_results:
+            logger.info("\n" + "=" * 80)
+            logger.info("LOSS ATTRIBUTION BY PAIR")
+            logger.info("=" * 80)
             
-            # Basic metrics
-            logger.info(f"Initial Capital: ${portfolio_metrics.get('initial_capital', 0):,.2f}")
-            logger.info(f"Final Capital: ${portfolio_metrics.get('final_capital', 0):,.2f}")
-            logger.info(f"Total PnL: ${portfolio_metrics.get('total_pnl', 0):,.2f}")
-            logger.info(f"Total Return: {portfolio_metrics.get('total_return', 0):.2%}")
-            logger.info(f"Annualized Return: {portfolio_metrics.get('annualized_return', 0):.2%}")
-            logger.info(f"Annualized Volatility: {portfolio_metrics.get('annualized_volatility', 0):.2%}")
+            pair_performance = diagnostic_results['pair_performance']
+            for pair, stats in pair_performance.items():
+                logger.info(f"{pair}:")
+                logger.info(f"  Total PnL: ${stats.get('pnl_sum', 0):.2f}")
+                logger.info(f"  Win Rate: {stats.get('win_rate', 0):.1f}%")
+                logger.info(f"  Profit Factor: {stats.get('profit_factor', 0):.2f}")
+                logger.info(f"  Trade Count: {stats.get('pnl_count', 0)}")
+                logger.info(f"  Avg PnL: ${stats.get('pnl_mean', 0):.2f}")
+        
+        # Log regime performance
+        if diagnostic_results and 'regime_analysis' in diagnostic_results:
+            logger.info("\n" + "=" * 80)
+            logger.info("PERFORMANCE BY MARKET REGIME")
+            logger.info("=" * 80)
             
-            # Risk metrics
-            logger.info(f"Sharpe Ratio: {portfolio_metrics.get('sharpe_ratio', 0):.3f}")
-            logger.info(f"Sortino Ratio: {portfolio_metrics.get('sortino_ratio', 0):.3f}")
-            logger.info(f"Calmar Ratio: {portfolio_metrics.get('calmar_ratio', 0):.3f}")
-            logger.info(f"Maximum Drawdown: {portfolio_metrics.get('max_drawdown', 0):.2%}")
-            logger.info(f"Value at Risk (95%): {portfolio_metrics.get('var_95', 0):.2%}")
-            
-            # Trading statistics
-            logger.info("\n" + "=" * 50)
-            logger.info("TRADING STATISTICS")
-            logger.info("=" * 50)
-            
-            total_trades = portfolio_metrics.get('total_trades', 0)
-            winning_trades = portfolio_metrics.get('winning_trades', 0)
-            losing_trades = portfolio_metrics.get('losing_trades', 0)
-            win_rate = portfolio_metrics.get('win_rate', 0)
-            
-            logger.info(f"Total Trades: {total_trades}")
-            logger.info(f"Winning Trades: {winning_trades}")
-            logger.info(f"Losing Trades: {losing_trades}")
-            logger.info(f"Win Rate: {win_rate:.2%}")
-            logger.info(f"Average Win: ${portfolio_metrics.get('avg_win', 0):,.2f}")
-            logger.info(f"Average Loss: ${portfolio_metrics.get('avg_loss', 0):,.2f}")
-            logger.info(f"Largest Win: ${portfolio_metrics.get('largest_win', 0):,.2f}")
-            logger.info(f"Largest Loss: ${portfolio_metrics.get('largest_loss', 0):,.2f}")
-            logger.info(f"Profit Factor: {portfolio_metrics.get('profit_factor', 0):.3f}")
-            logger.info(f"Average Holding Period: {portfolio_metrics.get('avg_holding_period', 0):.1f} days")
-            
-            # Advanced metrics
-            logger.info("\n" + "=" * 50)
-            logger.info("ADVANCED METRICS")
-            logger.info("=" * 50)
-            
-            logger.info(f"Information Ratio: {portfolio_metrics.get('information_ratio', 0):.3f}")
-            logger.info(f"Treynor Ratio: {portfolio_metrics.get('treynor_ratio', 0):.3f}")
-            logger.info(f"Jensen's Alpha: {portfolio_metrics.get('jensen_alpha', 0):.3f}")
-            logger.info(f"Recovery Factor: {portfolio_metrics.get('recovery_factor', 0):.3f}")
-            logger.info(f"Sterling Ratio: {portfolio_metrics.get('sterling_ratio', 0):.3f}")
-            logger.info(f"Gain to Pain Ratio: {portfolio_metrics.get('gain_to_pain_ratio', 0):.3f}")
-            logger.info(f"Best 30-Day Return: {portfolio_metrics.get('best_30d_return', 0):.2%}")
-            logger.info(f"Worst 30-Day Return: {portfolio_metrics.get('worst_30d_return', 0):.2%}")
-            
-            # Risk metrics
-            logger.info(f"Skewness: {portfolio_metrics.get('skewness', 0):.3f}")
-            logger.info(f"Kurtosis: {portfolio_metrics.get('kurtosis', 0):.3f}")
-            logger.info(f"Downside Deviation: {portfolio_metrics.get('downside_deviation', 0):.2%}")
-            
-            # Individual pair performance
-            logger.info("\n" + "=" * 50)
-            logger.info("INDIVIDUAL PAIR PERFORMANCE")
-            logger.info("=" * 50)
-            
-            for pair, results in backtest_results.items():
-                pair_metrics = metrics_calculator.calculate_pair_metrics(results)
-                if pair_metrics:
-                    logger.info(f"\nPair: {pair[0]}-{pair[1]}")
-                    logger.info(f"  Total Return: {pair_metrics.get('total_return', 0):.2%}")
-                    logger.info(f"  Sharpe Ratio: {pair_metrics.get('sharpe_ratio', 0):.3f}")
-                    logger.info(f"  Max Drawdown: {pair_metrics.get('max_drawdown', 0):.2%}")
-                    logger.info(f"  Total Trades: {pair_metrics.get('total_trades', 0)}")
-                    logger.info(f"  Win Rate: {pair_metrics.get('win_rate', 0):.2%}")
-                    logger.info(f"  Total PnL: ${pair_metrics.get('total_pnl', 0):,.2f}")
+            regime_analysis = diagnostic_results['regime_analysis']
+            for regime, stats in regime_analysis.items():
+                logger.info(f"Regime {regime}:")
+                logger.info(f"  Total PnL: ${stats.get('pnl_sum', 0):.2f}")
+                logger.info(f"  Win Rate: {stats.get('win_rate', 0):.1f}%")
+                logger.info(f"  Trade Count: {stats.get('pnl_count', 0)}")
+                logger.info(f"  Avg PnL: ${stats.get('pnl_mean', 0):.2f}")
+        
+        # Log loss decomposition
+        if diagnostic_results and 'loss_decomposition' in diagnostic_results:
+            loss_decomp = diagnostic_results['loss_decomposition']
+            if loss_decomp:
+                logger.info("\n" + "=" * 80)
+                logger.info("LOSS DECOMPOSITION ANALYSIS")
+                logger.info("=" * 80)
+                
+                logger.info(f"Total Loss: ${loss_decomp.get('total_loss', 0):.2f}")
+                logger.info(f"Average Loss: ${loss_decomp.get('avg_loss', 0):.2f}")
+                logger.info(f"Median Loss: ${loss_decomp.get('median_loss', 0):.2f}")
+                
+                # Loss by holding period
+                if 'loss_by_holding_period' in loss_decomp and not loss_decomp['loss_by_holding_period'].empty:
+                    logger.info("\nLoss by Holding Period:")
+                    for period, stats in loss_decomp['loss_by_holding_period'].items():
+                        logger.info(f"  {period}: ${stats.get('sum', 0):.2f} ({stats.get('contribution_pct', 0):.1f}%)")
         
         logger.info("\n" + "=" * 80)
-        logger.info("Backtest completed successfully")
+        logger.info("BACKTEST COMPLETED SUCCESSFULLY")
         logger.info("=" * 80)
         
     except Exception as e:

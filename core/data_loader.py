@@ -18,6 +18,7 @@ class DataLoader:
         """Initialize the data loader with configuration."""
         self.config = config
         self.data = None
+        self.ohlc_data = None
         self.logger = logging.getLogger(__name__)
 
     def fetch_data(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
@@ -41,6 +42,9 @@ class DataLoader:
             # Get closing prices
             close_prices = data['Close']
             
+            # Store OHLC data for ATR calculation
+            self.ohlc_data = data
+            
             # Log data shape and date range
             self.logger.info(f"Data shape: {close_prices.shape}")
             self.logger.info(f"Date range: {close_prices.index[0]} to {close_prices.index[-1]}")
@@ -59,6 +63,25 @@ class DataLoader:
         except Exception as e:
             self.logger.error(f"Error fetching market data: {str(e)}")
             raise
+
+    def get_ohlc_data(self, ticker: str) -> pd.DataFrame:
+        """Get OHLC data for a specific ticker."""
+        try:
+            if self.ohlc_data is not None:
+                # Extract OHLC data for the specific ticker
+                ohlc = pd.DataFrame({
+                    'open': self.ohlc_data['Open'][ticker],
+                    'high': self.ohlc_data['High'][ticker],
+                    'low': self.ohlc_data['Low'][ticker],
+                    'close': self.ohlc_data['Close'][ticker]
+                })
+                return ohlc
+            else:
+                self.logger.warning(f"No OHLC data available for {ticker}")
+                return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Error getting OHLC data for {ticker}: {e}")
+            return pd.DataFrame()
 
     def _log_data_quality(self):
         """Log data quality metrics."""
