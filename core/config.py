@@ -52,6 +52,12 @@ class BacktestConfig:
 
 
 @dataclass
+class DiagnosticsConfig:
+    """Configuration options for diagnostics and reporting."""
+    analyze_by_regime: bool = False
+
+
+@dataclass
 class WalkforwardConfig:
     """Configuration for walk-forward validation parameters."""
     train_months: int = 24
@@ -77,6 +83,7 @@ class Config:
     walkforward: WalkforwardConfig
     pair_universes: Dict[str, Dict]
     pair_scoring: PairScoringConfig
+    diagnostics: DiagnosticsConfig = DiagnosticsConfig()
     use_cache: bool = False
     force_refresh: bool = False
     data_dir: str = "data"
@@ -105,6 +112,9 @@ class Config:
             # Walk-forward validation config
             walkforward_cfg = config_dict.get('walkforward', {}) or {}
             walkforward = WalkforwardConfig(**walkforward_cfg)
+
+            diagnostics_cfg = config_dict.get('diagnostics', {}) or {}
+            diagnostics = DiagnosticsConfig(**diagnostics_cfg)
             
             # Create main config
             return cls(
@@ -116,6 +126,7 @@ class Config:
                 walkforward=walkforward,
                 pair_universes=config_dict.get('PAIR_UNIVERSES', {}),
                 pair_scoring=pair_scoring,
+                diagnostics=diagnostics,
                 use_cache=config_dict.get('use_cache', False),
                 force_refresh=config_dict.get('force_refresh', False),
             )

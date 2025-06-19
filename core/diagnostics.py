@@ -21,6 +21,65 @@ class TradeDiagnostics:
         
         # Set style
         sns.set_theme()
+
+    def analyze_performance_by_regime(self, backtest_results: Dict) -> Dict:
+        """Aggregate PnL statistics grouped by market regime."""
+        try:
+            trades_list = []
+            for res in backtest_results.values():
+                if 'trades' in res and res['trades']:
+                    trades_list.append(pd.DataFrame(res['trades']))
+
+            if not trades_list:
+                return {}
+
+            trades_df = pd.concat(trades_list, ignore_index=True)
+            if 'regime' not in trades_df.columns and 'entry_regime' in trades_df.columns:
+                trades_df['regime'] = trades_df['entry_regime']
+
+            if 'regime' not in trades_df.columns:
+                return {}
+
+            grouped = trades_df.groupby('regime')['pnl']
+            summary = grouped.agg(['sum', 'mean', 'count']).round(2)
+            summary['win_rate'] = grouped.apply(lambda x: (x > 0).mean() * 100).round(2)
+            return summary.to_dict('index')
+
+        except Exception as e:
+            self.logger.error(f"Error analyzing performance by regime: {e}")
+            return {}
+
+    def plot_pnl_by_regime(self, backtest_results: Dict, save_path: str = "plots") -> None:
+        """Plot total PnL by regime as a bar chart."""
+        try:
+            regime_stats = self.analyze_performance_by_regime(backtest_results)
+            if not regime_stats:
+                return
+
+            os.makedirs(save_path, exist_ok=True)
+            regimes = list(regime_stats.keys())
+            pnls = [stats['sum'] for stats in regime_stats.values()]
+            plt.figure(figsize=(8, 5))
+            plt.bar([str(r) for r in regimes], pnls, color='skyblue', edgecolor='black')
+            plt.xlabel('Regime')
+            plt.ylabel('Total PnL')
+            plt.title('PnL by Regime')
+            plt.tight_layout()
+            plt.savefig(f"{save_path}/pnl_by_regime.png", dpi=300)
+            plt.close()
+        except Exception as e:
+            self.logger.error(f"Error plotting PnL by regime: {e}")
+
+    def summarize_worst_drawdowns(self, equity_curve: pd.Series, regimes: pd.Series, top_n: int = 5) -> List[Dict]:
+        """Return worst drawdown days along with the prevailing regime."""
+        if equity_curve.empty or regimes is None or regimes.empty:
+            return []
+        drawdown = (equity_curve - equity_curve.cummax()) / equity_curve.cummax()
+        worst = drawdown.nsmallest(top_n)
+        summary = []
+        for date, dd in worst.items():
+            summary.append({'date': date, 'drawdown': float(dd), 'regime': int(regimes.get(date, -1))})
+        return summary
         
     def analyze_trade_performance(self, backtest_results: Dict) -> Dict:
         """Comprehensive analysis of trade performance."""
@@ -335,7 +394,13 @@ class TradeDiagnostics:
         except Exception as e:
             self.logger.error(f"Error printing worst trades: {e}")
     
-    def generate_diagnostic_report(self, backtest_results: Dict, save_path: str = "plots") -> Dict:
+    def generate_diagnostic_report(
+        self,
+        backtest_results: Dict,
+        save_path: str = "plots",
+        equity_curve: Optional[pd.Series] = None,
+        regimes: Optional[pd.Series] = None,
+    ) -> Dict:
         """Generate comprehensive diagnostic report."""
         try:
             # Analyze trade performance
@@ -343,9 +408,20 @@ class TradeDiagnostics:
             
             # Generate plots
             self.plot_pnl_histogram(backtest_results, save_path)
-            
+
+            # Optional regime analysis
+            if getattr(self.config, 'diagnostics', {}).get('analyze_by_regime', False):
+                self.plot_pnl_by_regime(backtest_results, save_path)
+
             # Print worst trades
             self.print_worst_trades(backtest_results)
+
+            if equity_curve is not None and regimes is not None:
+                dd_info = self.summarize_worst_drawdowns(equity_curve, regimes)
+                for item in dd_info:
+                    self.logger.info(
+                        f"Drawdown {item['drawdown']:.2%} on {item['date'].date()} in regime {item['regime']}"
+                    )
             
             # Log comprehensive summary
             if analysis and 'summary' in analysis:

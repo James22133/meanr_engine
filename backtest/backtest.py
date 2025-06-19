@@ -32,6 +32,7 @@ class Trade:
     entry_hurst: Optional[float] = None
     entry_regime: Optional[int] = None
     stop_loss_k: float = 2.0
+    scaled_regime: bool = False
 
 @dataclass
 class BacktestConfig:
@@ -99,6 +100,8 @@ class PairsBacktest:
         self.max_pct_portfolio = self.risk_config.get('max_pct_portfolio', 0.10)
         self.max_leverage = self.risk_config.get('max_leverage', 2.0)
         self.max_total_exposure = self.risk_config.get('max_total_exposure', 1.5)
+        self.regime_sizing_factors = self.risk_config.get('regime_sizing_factors',
+                                                         {'stable': 1.0, 'volatile': 0.5, 'bearish': 0.3})
         
         # Track pair-specific metrics
         self.pair_drawdowns = {}  # Track drawdown per pair
@@ -395,19 +398,34 @@ class PairsBacktest:
                     if signal_df.loc[date, 'entry_long']:
                         entry_price = prices.loc[date, pair[0]]
                         stop_loss = self.calculate_stop_loss(pair, date, 'long', entry_price)
-                        trade = self.open_trade(pair, date, 'long', entry_price,
-                                              stop_loss, position_size)
+                        trade = self.open_trade(
+                            pair,
+                            date,
+                            'long',
+                            entry_price,
+                            stop_loss,
+                            position_size,
+                            regime,
+                        )
                         active_trades[pair] = trade
 
                     elif signal_df.loc[date, 'entry_short']:
                         entry_price = prices.loc[date, pair[1]]
                         stop_loss = self.calculate_stop_loss(pair, date, 'short', entry_price)
-                        trade = self.open_trade(pair, date, 'short', entry_price,
-                                              stop_loss, position_size)
+                        trade = self.open_trade(
+                            pair,
+                            date,
+                            'short',
+                            entry_price,
+                            stop_loss,
+                            position_size,
+                            regime,
+                        )
                         active_trades[pair] = trade
 
                 # Update open positions and equity curve
                 self._update_positions(date)
+                self.rebalance_positions(date)
 
             except Exception as e:
                 error_count += 1
@@ -566,7 +584,19 @@ class PairsBacktest:
             active_positions = [p for p in self.positions.values() if p.exit_date is None]
             if not active_positions:
                 return
-            
+
+            regime_label = {0: 'stable', 1: 'volatile', 2: 'bearish'}
+            for pos in active_positions:
+                if not pos.scaled_regime:
+                    label = regime_label.get(pos.entry_regime, 'stable')
+                    factor = self.regime_sizing_factors.get(label, 1.0)
+                    if factor != 1.0:
+                        logger.info(
+                            f"Scaling position for regime {label} by factor {factor:.2f}"
+                        )
+                        pos.size *= factor
+                    pos.scaled_regime = True
+
             # Calculate current portfolio volatility
             recent_returns = self.daily_returns.last(f"{self.rebalance_freq}D")
             current_vol = recent_returns.std() * np.sqrt(252)
@@ -833,8 +863,16 @@ class PairsBacktest:
             f"Closed position in {(trade.asset1, trade.asset2)} at {date} with P&L: ${trade.pnl:,.2f}"
         )
 
-    def open_trade(self, pair: Tuple[str, str], date: pd.Timestamp, 
-                  direction: str, entry_price: float, stop_loss: float, size: float) -> Trade:
+    def open_trade(
+        self,
+        pair: Tuple[str, str],
+        date: pd.Timestamp,
+        direction: str,
+        entry_price: float,
+        stop_loss: float,
+        size: float,
+        regime: Optional[int] = None,
+    ) -> Trade:
         """Open a new trade and update equity curve."""
         asset1, asset2 = pair
         trade = Trade(
@@ -855,8 +893,9 @@ class PairsBacktest:
             entry_coint_p=None,
             entry_adf_p=None,
             entry_hurst=None,
-            entry_regime=None,
-            stop_loss_k=self.stop_loss_k
+            entry_regime=regime,
+            stop_loss_k=self.stop_loss_k,
+            scaled_regime=False,
         )
         
         # Add trade to active trades

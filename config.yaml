@@ -130,6 +130,10 @@ risk_control:
   max_pct_portfolio: 0.10  # Maximum 10% of portfolio per trade
   max_leverage: 2.0        # Maximum portfolio leverage
   max_total_exposure: 1.5  # Maximum total exposure relative to capital
+  regime_sizing_factors:
+    stable: 1.0
+    volatile: 0.5
+    bearish: 0.3
   
   # Additional risk parameters
   max_concurrent_trades_per_pair: 2  # Maximum concurrent trades per pair
@@ -273,3 +277,7 @@ visualization:
     cointegration_window: 60
     stability_window: 120
   output_dir: "reports/plots"
+
+# Diagnostics options
+diagnostics:
+  analyze_by_regime: true

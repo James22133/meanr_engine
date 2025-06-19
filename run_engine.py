@@ -114,13 +114,19 @@ def main():
                 # Use same regime for all pairs for now (can be optimized later)
                 if all_regimes is None:
                     all_regimes = pd.Series(0, index=pair_data.index)
+
+        if all_regimes is not None:
+            logger.info("Daily regime states:")
+            for dt, reg in all_regimes.items():
+                logger.info(f"{dt.date()}: {reg}")
         
         # Run backtests
+        portfolio_equity = None
         for pair in selected_pairs:
             if pair in all_signals:
                 backtest_runner.run_backtest(
-                    data_loader.get_pair_data(pair), 
-                    {pair: all_signals[pair]}, 
+                    data_loader.get_pair_data(pair),
+                    {pair: all_signals[pair]},
                     all_regimes
                 )
                 backtest_results[pair] = {
@@ -128,6 +134,12 @@ def main():
                     'daily_returns': backtest_runner.daily_returns,
                     'trades': backtest_runner.trades,
                 }
+                if portfolio_equity is None:
+                    portfolio_equity = backtest_runner.equity_curve.copy()
+                else:
+                    portfolio_equity = portfolio_equity.add(
+                        backtest_runner.equity_curve, fill_value=0
+                    )
         
         # Calculate portfolio metrics
         portfolio_metrics = metrics_calculator.calculate_portfolio_metrics(backtest_results)
@@ -136,7 +148,11 @@ def main():
         diagnostics = TradeDiagnostics(config)
         
         # Generate diagnostic report
-        diagnostic_results = diagnostics.generate_diagnostic_report(backtest_results)
+        diagnostic_results = diagnostics.generate_diagnostic_report(
+            backtest_results,
+            equity_curve=portfolio_equity,
+            regimes=all_regimes,
+        )
         
         # Generate plots
         logger.info("Generating plots...")
