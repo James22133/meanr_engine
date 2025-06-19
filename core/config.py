@@ -48,6 +48,7 @@ class BacktestConfig:
     target_profit_pct: Optional[float] = None
     rebalance_freq: int = 21  # Default to weekly rebalancing
     max_concurrent_positions: int = 5  # Default to 5 positions
+    risk_control: Optional[dict] = None
 
 
 @dataclass
@@ -94,6 +95,7 @@ class Config:
 
             # Extract backtest config from lowercase key to match config.yaml
             backtest_cfg = config_dict.get('backtest', {}) or {}
+            backtest_cfg['risk_control'] = config_dict.get('risk_control', {})
             backtest = BacktestConfig(**backtest_cfg)
 
             # Pair scoring weights

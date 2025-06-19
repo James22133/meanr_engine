@@ -47,6 +47,7 @@ class BacktestConfig:
     target_profit_pct: Optional[float] = None
     rebalance_freq: int = 21  # Default to weekly rebalancing
     max_concurrent_positions: int = 5  # Default to 5 positions
+    risk_control: Optional[dict] = None
 
 def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, lookback: int = 5) -> pd.Series:
     """Calculate Average True Range (ATR) for stop-loss sizing."""
@@ -85,13 +86,19 @@ class PairsBacktest:
         self.data_loader = data_loader
         
         # Risk management attributes
-        self.risk_config = getattr(config, 'risk_control', {})
+        if isinstance(config, dict):
+            self.risk_config = config.get('risk_control', {})
+        else:
+            self.risk_config = getattr(config, 'risk_control', {})
         self.atr_multiplier = self.risk_config.get('atr_multiplier', 2.0)
         self.max_drawdown_per_pair = self.risk_config.get('max_drawdown_per_pair', 0.05)  # 5%
         self.max_drawdown_per_trade = self.risk_config.get('max_drawdown_per_trade', 0.02)  # 2%
         self.max_pair_exposure = self.risk_config.get('max_pair_exposure', 0.1)  # 10%
         self.volatility_scaling = self.risk_config.get('volatility_scaling', True)
         self.atr_period = self.risk_config.get('atr_period', 14)
+        self.max_pct_portfolio = self.risk_config.get('max_pct_portfolio', 0.10)
+        self.max_leverage = self.risk_config.get('max_leverage', 2.0)
+        self.max_total_exposure = self.risk_config.get('max_total_exposure', 1.5)
         
         # Track pair-specific metrics
         self.pair_drawdowns = {}  # Track drawdown per pair
@@ -532,6 +539,8 @@ class PairsBacktest:
         self.equity_curve.loc[date] = float(base_equity + daily_total_pnl)
 
         del self.positions[pair]
+        self.current_exposure = sum(t.size for t in self.positions.values())
+        self._enforce_leverage(date)
         logger.info(
             f"Closed position in {pair} at {date} with P&L: ${trade.pnl:,.2f}"
         )
@@ -723,18 +732,51 @@ class PairsBacktest:
         # TODO: Implement proper skew filtering if needed
         return True
 
-    def get_position_size(self, pair: Tuple[str, str], date: pd.Timestamp, 
+    def get_position_size(self, pair: Tuple[str, str], date: pd.Timestamp,
                          regime: int) -> float:
         """Calculate position size based on regime and risk settings."""
         # Use a reasonable base position size (1% of capital)
         base_size = self.initial_capital * 0.01
-        
+
         if self.risk_config.get('regime_sizing', False):
             # Reduce size in unstable regimes
             if regime > 0:  # Assuming regime 0 is stable
                 base_size *= 0.5
-        
-        return base_size
+
+        # Determine current portfolio value
+        if not self.equity_curve.empty and date in self.equity_curve.index:
+            current_value = float(self.equity_curve.loc[:date].iloc[-1])
+        elif not self.equity_curve.empty:
+            current_value = float(self.equity_curve.iloc[-1])
+        else:
+            current_value = float(self.initial_capital)
+
+        # Enforce per-trade cap
+        max_position_value = current_value * self.max_pct_portfolio
+        position_size = min(base_size, max_position_value)
+
+        # Exposure limit across portfolio
+        current_total = sum(t.size for t in self.positions.values())
+        if current_total + position_size > current_value * self.max_total_exposure:
+            allowed = current_value * self.max_total_exposure - current_total
+            if allowed <= 0:
+                logger.warning(
+                    f"Total exposure limit reached; skipping trade for {pair}"
+                )
+                return 0.0
+            logger.warning(
+                f"Clipping trade size from {position_size} to {allowed} due to exposure limit"
+            )
+            position_size = allowed
+
+        # Failsafe if trade size exceeds capital
+        if position_size > current_value:
+            logger.warning(
+                f"Clipping trade size from {position_size} to {current_value}"
+            )
+            position_size = current_value
+
+        return position_size
 
     def should_exit_trade(self, trade: Trade, date: pd.Timestamp) -> bool:
         """Determine if a trade should be exited based on the exit condition."""
@@ -829,7 +871,10 @@ class PairsBacktest:
         
         # Update risk metrics
         self._update_risk_metrics(trade)
-        
+
+        # Enforce leverage limits
+        self._enforce_leverage(date)
+
         # Log trade details
         self._log_trade_details(trade)
         
@@ -845,8 +890,45 @@ class PairsBacktest:
 
     def _update_risk_metrics(self, trade: Trade):
         """Update risk metrics with new trade."""
-        self.current_exposure += trade.size
+        self.current_exposure = sum(t.size for t in self.positions.values())
+
+    def _enforce_leverage(self, date: pd.Timestamp) -> None:
+        """Ensure portfolio leverage stays within limits."""
+        if not self.equity_curve.empty and date in self.equity_curve.index:
+            current_value = float(self.equity_curve.loc[:date].iloc[-1])
+        elif not self.equity_curve.empty:
+            current_value = float(self.equity_curve.iloc[-1])
+        else:
+            current_value = float(self.initial_capital)
+
+        total_notional = sum(t.size for t in self.positions.values())
+        exposure = total_notional / current_value if current_value > 0 else 0.0
+
+        if exposure > self.max_leverage:
+            scale = self.max_leverage / exposure
+            logger.warning(
+                f"Leverage {exposure:.2f} exceeds max {self.max_leverage}; scaling positions by {scale:.2f}"
+            )
+            for t in self.positions.values():
+                t.size *= scale
+            self.current_exposure = sum(t.size for t in self.positions.values())
+
+        logger.info(
+            f"Total exposure: {total_notional:.2f} | Leverage: {exposure:.2f}x"
+        )
 
     def _log_trade_details(self, trade: Trade):
         """Log detailed trade information."""
-        logger.info(f"Trade details: {trade.__dict__}")
+        if trade.entry_date in self.equity_curve.index:
+            current_value = float(self.equity_curve.loc[:trade.entry_date].iloc[-1])
+        elif not self.equity_curve.empty:
+            current_value = float(self.equity_curve.iloc[-1])
+        else:
+            current_value = float(self.initial_capital)
+
+        total_notional = sum(t.size for t in self.positions.values())
+        leverage = total_notional / current_value if current_value > 0 else 0.0
+
+        logger.info(
+            f"Trade details: {trade.__dict__} | Notional: {trade.size:.2f} | Leverage: {leverage:.2f}x"
+        )

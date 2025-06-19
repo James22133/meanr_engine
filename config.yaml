@@ -127,6 +127,9 @@ risk_control:
   # Position sizing and exposure limits
   max_pair_exposure: 0.1  # Maximum 10% exposure per pair
   volatility_scaling: true  # Enable volatility-based position scaling
+  max_pct_portfolio: 0.10  # Maximum 10% of portfolio per trade
+  max_leverage: 2.0        # Maximum portfolio leverage
+  max_total_exposure: 1.5  # Maximum total exposure relative to capital
   
   # Additional risk parameters
   max_concurrent_trades_per_pair: 2  # Maximum concurrent trades per pair
