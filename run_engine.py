@@ -118,15 +118,17 @@ def main():
         # Run backtests
         for pair in selected_pairs:
             if pair in all_signals:
-                backtest_runner.run_backtest(
+                # Create a new backtest instance for each pair to avoid trade accumulation
+                pair_backtest_runner = PairsBacktest(config.backtest, data_loader)
+                pair_backtest_runner.run_backtest(
                     data_loader.get_pair_data(pair), 
                     {pair: all_signals[pair]}, 
                     all_regimes
                 )
                 backtest_results[pair] = {
-                    'equity_curve': backtest_runner.equity_curve,
-                    'daily_returns': backtest_runner.daily_returns,
-                    'trades': backtest_runner.trades,
+                    'equity_curve': pair_backtest_runner.equity_curve,
+                    'daily_returns': pair_backtest_runner.daily_returns,
+                    'trades': pair_backtest_runner.trades,
                 }
         
         # Calculate portfolio metrics

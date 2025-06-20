@@ -163,12 +163,12 @@ class MetricsCalculator:
                     'gross_loss': 0.0
                 }
             
-            # Filter out trades without PnL
-            valid_trades = [t for t in trades if hasattr(t, 'pnl') and t.pnl is not None]
+            # Filter out trades without PnL and only count closed trades
+            valid_trades = [t for t in trades if hasattr(t, 'pnl') and t.pnl is not None and hasattr(t, 'exit_date') and t.exit_date is not None]
             
             if not valid_trades:
                 return {
-                    'total_trades': len(trades),
+                    'total_trades': len([t for t in trades if hasattr(t, 'exit_date') and t.exit_date is not None]),
                     'winning_trades': 0,
                     'losing_trades': 0,
                     'win_rate': 0.0,

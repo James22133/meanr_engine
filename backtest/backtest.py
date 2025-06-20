@@ -420,9 +420,23 @@ class PairsBacktest:
         # Fill any NaN values in daily returns with 0
         self.daily_returns = self.daily_returns.fillna(0)
         
+        # Close all remaining open trades at the end of the backtest
+        final_date = dates[-1]
+        open_trades_count = len(active_trades)
+        if open_trades_count > 0:
+            logger.info(f"Closing {open_trades_count} open trades at end of backtest")
+            for pair, trade in list(active_trades.items()):
+                self.close_trade(trade, final_date)
+                del active_trades[pair]
+        
         # Debug: Log final results
         logger.info(f"Backtest completed. Total trades: {len(self.trades)}")
         logger.info(f"Final equity: ${self.equity_curve.iloc[-1]:,.2f}")
+        
+        # Verify all trades are closed
+        closed_trades = [t for t in self.trades if t.exit_date is not None]
+        open_trades = [t for t in self.trades if t.exit_date is None]
+        logger.info(f"Closed trades: {len(closed_trades)}, Open trades: {len(open_trades)}")
     
     def _should_enter_position(self, 
                              pair: Tuple[str, str],
@@ -615,7 +629,11 @@ class PairsBacktest:
         # Trade statistics
         closed_trades = [t for t in self.trades if t.exit_date is not None]
         winning_trades = [t for t in closed_trades if t.pnl and t.pnl > 0]
+        losing_trades = [t for t in closed_trades if t.pnl and t.pnl < 0]
         avg_trade_duration = np.mean([(t.exit_date - t.entry_date).days for t in closed_trades]) if closed_trades else 0
+        
+        # Calculate total PnL from closed trades only
+        total_pnl_closed = sum(t.pnl for t in closed_trades if t.pnl is not None)
         
         return {
             'annualized_return': annualized_return,
@@ -628,6 +646,8 @@ class PairsBacktest:
             'avg_holding_period': avg_trade_duration,
             'total_trades': len(closed_trades),
             'winning_trades': len(winning_trades),
+            'losing_trades': len(losing_trades),
+            'total_pnl_closed': total_pnl_closed,
             **regime_metrics
         }
 
@@ -669,8 +689,8 @@ class PairsBacktest:
     def _update_positions(self, date: datetime) -> None:
         """Update open positions and equity curve."""
         try:
-            # Calculate P&L for all open positions
-            daily_pnl = 0.0
+            # Calculate P&L for all open positions (unrealized)
+            unrealized_pnl = 0.0
             for pair, trade in self.positions.items():
                 if pair[0] not in self.prices.columns or pair[1] not in self.prices.columns:
                     continue
@@ -682,27 +702,31 @@ class PairsBacktest:
                     continue
                     
                 pnl = self.calculate_trade_pnl(trade, current_price1, current_price2)
-                daily_pnl += pnl
+                unrealized_pnl += pnl
 
-            # Update equity curve
+            # Update equity curve with realized P&L only
             if date in self.equity_curve.index:
                 if date == self.equity_curve.index[0]:
-                    self.equity_curve.loc[date] = self.initial_capital + daily_pnl
+                    # First day: start with initial capital plus realized P&L
+                    self.equity_curve.loc[date] = self.initial_capital + self.realized_pnl.loc[date]
                 else:
-                    prev_equity = self.equity_curve.loc[:date].iloc[-2]
-                    self.equity_curve.loc[date] = prev_equity + daily_pnl
+                    # Subsequent days: add to previous equity
+                    prev_date = self.equity_curve.index[self.equity_curve.index.get_loc(date) - 1]
+                    prev_equity = self.equity_curve.loc[prev_date]
+                    self.equity_curve.loc[date] = prev_equity + self.realized_pnl.loc[date]
 
-            # Update realized P&L
-            self.realized_pnl.loc[date] = daily_pnl
+            # Store unrealized P&L separately (don't add to equity curve)
+            # This prevents the equity curve from going negative due to unrealized losses
 
         except Exception as e:
             logger.error(f"Error updating positions for date {date}: {str(e)}")
             # Set default values if update fails
             if date in self.equity_curve.index:
                 if date == self.equity_curve.index[0]:
-                    self.equity_curve.loc[date] = self.initial_capital
+                    self.equity_curve.loc[date] = self.initial_capital + self.realized_pnl.loc[date]
                 else:
-                    self.equity_curve.loc[date] = self.equity_curve.loc[:date].iloc[-2]
+                    prev_date = self.equity_curve.index[self.equity_curve.index.get_loc(date) - 1]
+                    self.equity_curve.loc[date] = self.equity_curve.loc[prev_date] + self.realized_pnl.loc[date]
             self.realized_pnl.loc[date] = 0.0
 
     def calculate_stop_loss(self, pair: Tuple[str, str], date: pd.Timestamp, 
@@ -818,14 +842,16 @@ class PairsBacktest:
         else:
             self.realized_pnl.loc[date] = trade.pnl
 
-        # Immediately update equity curve to reflect realized gains
-        idx = self.equity_curve.index.get_loc(date) if date in self.equity_curve.index else None
-        daily_pnl = self.realized_pnl.loc[date] + self._calculate_daily_pnl(date)
-        if idx is not None and idx > 0:
-            prev_date = self.equity_curve.index[idx - 1]
-            self.equity_curve.loc[date] = float(self.equity_curve.loc[prev_date]) + float(daily_pnl)
-        else:
-            self.equity_curve.loc[date] = float(self.initial_capital) + float(daily_pnl)
+        # Update equity curve with realized P&L only
+        if date in self.equity_curve.index:
+            if date == self.equity_curve.index[0]:
+                # First day: start with initial capital plus realized P&L
+                self.equity_curve.loc[date] = self.initial_capital + self.realized_pnl.loc[date]
+            else:
+                # Subsequent days: add to previous equity
+                prev_date = self.equity_curve.index[self.equity_curve.index.get_loc(date) - 1]
+                prev_equity = self.equity_curve.loc[prev_date]
+                self.equity_curve.loc[date] = prev_equity + self.realized_pnl.loc[date]
 
         # Safely remove position if it exists
         self.positions.pop((trade.asset1, trade.asset2), None)
