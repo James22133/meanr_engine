@@ -137,8 +137,20 @@ def main():
         # Initialize diagnostics module
         diagnostics = TradeDiagnostics(config)
         
-        # Generate diagnostic report
-        diagnostic_results = diagnostics.generate_diagnostic_report(backtest_results)
+        # Aggregate all trades from each individual backtest result for diagnostics
+        all_trades = []
+        for result in backtest_results.values():
+            all_trades.extend(result.get('trades', []))
+        
+        # Generate diagnostic report using the aggregated list of all trades
+        diagnostic_results = diagnostics.generate_diagnostic_report(all_trades)
+        
+        # Analyze performance by pair with comprehensive metrics
+        pair_performance = diagnostics.analyze_by_pair(backtest_results)
+        
+        # Add pair performance to diagnostic results
+        if diagnostic_results:
+            diagnostic_results['pair_performance'] = pair_performance
         
         # Generate plots
         logger.info("Generating plots...")
@@ -177,6 +189,28 @@ def main():
         
         # Log loss attribution by pair
         if diagnostic_results and 'pair_performance' in diagnostic_results:
+            logger.info("\n" + "=" * 80)
+            logger.info("PAIR PERFORMANCE SUMMARY")
+            logger.info("=" * 80)
+            
+            pair_summary_data = []
+            for pair, stats in diagnostic_results['pair_performance'].items():
+                pair_summary_data.append({
+                    'Pair': f"{pair[0]}-{pair[1]}",
+                    'Total PnL ($)': stats.get('pnl_sum', 0),
+                    'Annualized Return (%)': stats.get('annualized_return_pct', 0),
+                    'Annualized Volatility (%)': stats.get('annualized_volatility_pct', 0),
+                    'Sharpe Ratio': stats.get('sharpe_ratio', 0),
+                    'Max Drawdown (%)': stats.get('max_drawdown_pct', 0),
+                    'Win Rate (%)': stats.get('win_rate', 0),
+                    'Profit Factor': stats.get('profit_factor', 0),
+                    'Total Trades': stats.get('pnl_count', 0)
+                })
+            
+            if pair_summary_data:
+                summary_df = pd.DataFrame(pair_summary_data)
+                logger.info("\n" + summary_df.to_string())
+
             logger.info("\n" + "=" * 80)
             logger.info("LOSS ATTRIBUTION BY PAIR")
             logger.info("=" * 80)

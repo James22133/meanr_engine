@@ -22,14 +22,14 @@ class TradeDiagnostics:
         # Set style
         sns.set_theme()
         
-    def analyze_trade_performance(self, backtest_results: Dict) -> Dict:
+    def analyze_trade_performance(self, all_trades: List[Dict]) -> Dict:
         """Comprehensive analysis of trade performance."""
         try:
-            if not backtest_results or 'trades' not in backtest_results:
+            if not all_trades:
                 self.logger.warning("No trades found in backtest results")
                 return {}
                 
-            trades_df = pd.DataFrame(backtest_results['trades'])
+            trades_df = pd.DataFrame(all_trades)
             if trades_df.empty:
                 self.logger.warning("No trades to analyze")
                 return {}
@@ -225,14 +225,14 @@ class TradeDiagnostics:
             self.logger.error(f"Error analyzing holding periods: {e}")
             return {}
     
-    def plot_pnl_histogram(self, backtest_results: Dict, save_path: str = "plots") -> None:
+    def plot_pnl_histogram(self, all_trades: List[Dict], save_path: str = "plots") -> None:
         """Plot histogram of trade PnLs."""
         try:
-            if not backtest_results or 'trades' not in backtest_results:
+            if not all_trades:
                 self.logger.warning("No trades found for PnL histogram")
                 return
                 
-            trades_df = pd.DataFrame(backtest_results['trades'])
+            trades_df = pd.DataFrame(all_trades)
             if trades_df.empty:
                 self.logger.warning("No trades to plot")
                 return
@@ -296,14 +296,14 @@ class TradeDiagnostics:
         except Exception as e:
             self.logger.error(f"Error plotting PnL histogram: {e}")
     
-    def print_worst_trades(self, backtest_results: Dict, top_n: int = 10) -> None:
+    def print_worst_trades(self, all_trades: List[Dict], top_n: int = 10) -> None:
         """Print the worst performing trades."""
         try:
-            if not backtest_results or 'trades' not in backtest_results:
+            if not all_trades:
                 self.logger.warning("No trades found for worst trades analysis")
                 return
                 
-            trades_df = pd.DataFrame(backtest_results['trades'])
+            trades_df = pd.DataFrame(all_trades)
             if trades_df.empty:
                 self.logger.warning("No trades to analyze")
                 return
@@ -335,17 +335,26 @@ class TradeDiagnostics:
         except Exception as e:
             self.logger.error(f"Error printing worst trades: {e}")
     
-    def generate_diagnostic_report(self, backtest_results: Dict, save_path: str = "plots") -> Dict:
+    def generate_diagnostic_report(self, all_trades: List[Dict], save_path: str = "plots") -> Dict:
         """Generate comprehensive diagnostic report."""
         try:
             # Analyze trade performance
-            analysis = self.analyze_trade_performance(backtest_results)
+            analysis = self.analyze_trade_performance(all_trades)
             
             # Generate plots
-            self.plot_pnl_histogram(backtest_results, save_path)
+            self.plot_pnl_histogram(all_trades, save_path)
             
             # Print worst trades
-            self.print_worst_trades(backtest_results)
+            self.print_worst_trades(all_trades)
+            
+            # Convert trades to DataFrame for regime analysis
+            trades_df = pd.DataFrame(all_trades) if all_trades else pd.DataFrame()
+            
+            # Analyze performance by regime
+            regime_analysis = self.analyze_by_regime(trades_df)
+            
+            # Get loss decomposition
+            loss_decomposition = self.get_loss_decomposition(trades_df)
             
             # Log comprehensive summary
             if analysis and 'summary' in analysis:
@@ -361,8 +370,342 @@ class TradeDiagnostics:
                 self.logger.info(f"Max Profit: ${summary['max_profit']:.2f}")
                 self.logger.info(f"Max Loss: ${summary['max_loss']:.2f}")
             
+            # Add regime and loss decomposition to analysis
+            analysis['regime_analysis'] = regime_analysis
+            analysis['loss_decomposition'] = loss_decomposition
+            
             return analysis
             
         except Exception as e:
             self.logger.error(f"Error generating diagnostic report: {e}")
+            return {}
+
+    def calculate_trade_stats(self, trades: List) -> Dict:
+        """Calculate comprehensive trade statistics for a list of trades."""
+        try:
+            if not trades:
+                return {}
+                
+            # Convert trades to DataFrame
+            trades_df = pd.DataFrame([trade.__dict__ for trade in trades])
+            if trades_df.empty:
+                return {}
+            
+            # Basic statistics
+            total_trades = len(trades_df)
+            winning_trades = len(trades_df[trades_df['pnl'] > 0])
+            losing_trades = len(trades_df[trades_df['pnl'] < 0])
+            
+            # PnL statistics
+            total_pnl = trades_df['pnl'].sum()
+            avg_pnl = trades_df['pnl'].mean()
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            
+            # Profit factor
+            total_wins = trades_df[trades_df['pnl'] > 0]['pnl'].sum()
+            total_losses = abs(trades_df[trades_df['pnl'] < 0]['pnl'].sum())
+            profit_factor = total_wins / total_losses if total_losses > 0 else float('inf')
+            
+            # Time-based metrics
+            if 'entry_date' in trades_df.columns and 'exit_date' in trades_df.columns:
+                trades_df['entry_date'] = pd.to_datetime(trades_df['entry_date'])
+                trades_df['exit_date'] = pd.to_datetime(trades_df['exit_date'])
+                
+                # Calculate holding periods
+                trades_df['holding_period'] = (trades_df['exit_date'] - trades_df['entry_date']).dt.days
+                avg_holding_period = trades_df['holding_period'].mean()
+                
+                # Calculate time span
+                start_date = trades_df['entry_date'].min()
+                end_date = trades_df['exit_date'].max()
+                total_days = (end_date - start_date).days
+            else:
+                avg_holding_period = 0
+                total_days = 252  # Default to one year
+            
+            return {
+                'pnl_sum': total_pnl,
+                'pnl_mean': avg_pnl,
+                'pnl_count': total_trades,
+                'win_rate': win_rate * 100,  # Convert to percentage
+                'profit_factor': profit_factor,
+                'avg_holding_period': avg_holding_period,
+                'total_days': total_days,
+                'start_date': start_date if 'entry_date' in trades_df.columns else None,
+                'end_date': end_date if 'exit_date' in trades_df.columns else None
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating trade stats: {e}")
+            return {}
+    
+    def calculate_performance_metrics(self, daily_returns: pd.Series) -> Dict:
+        """Calculate performance metrics from daily returns."""
+        try:
+            if daily_returns.empty:
+                return {}
+            
+            # Ensure we have a Series
+            if isinstance(daily_returns, pd.DataFrame):
+                daily_returns = daily_returns.iloc[:, 0]
+            
+            # Basic metrics
+            annualized_return = daily_returns.mean() * 252
+            annualized_volatility = daily_returns.std() * np.sqrt(252)
+            sharpe_ratio = annualized_return / annualized_volatility if annualized_volatility != 0 else 0
+            
+            # Calculate max drawdown
+            cumulative_returns = (1 + daily_returns).cumprod()
+            rolling_max = cumulative_returns.expanding().max()
+            drawdown = (cumulative_returns - rolling_max) / rolling_max
+            max_drawdown = drawdown.min()
+            
+            return {
+                'annualized_return': annualized_return,
+                'annualized_volatility': annualized_volatility,
+                'sharpe_ratio': sharpe_ratio,
+                'max_drawdown': max_drawdown
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating performance metrics: {e}")
+            return {}
+    
+    def calculate_pair_equity_curve(self, trades: List, initial_capital: float = 1000000) -> pd.Series:
+        """Calculate equity curve for a specific pair from trade data."""
+        try:
+            if not trades:
+                return pd.Series()
+            
+            # Convert trades to DataFrame
+            trades_df = pd.DataFrame([trade.__dict__ for trade in trades])
+            if trades_df.empty:
+                return pd.Series()
+            
+            # Ensure dates are datetime
+            trades_df['entry_date'] = pd.to_datetime(trades_df['entry_date'])
+            trades_df['exit_date'] = pd.to_datetime(trades_df['exit_date'])
+            
+            # Create date range
+            start_date = trades_df['entry_date'].min()
+            end_date = trades_df['exit_date'].max()
+            date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+            
+            # Initialize equity curve
+            equity_curve = pd.Series(index=date_range, data=initial_capital)
+            
+            # Add PnL for each trade on its exit date
+            for _, trade in trades_df.iterrows():
+                if pd.notna(trade['exit_date']) and pd.notna(trade['pnl']):
+                    equity_curve.loc[trade['exit_date']:] += trade['pnl']
+            
+            return equity_curve
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating pair equity curve: {e}")
+            return pd.Series()
+    
+    def analyze_by_pair(self, backtest_results: Dict) -> Dict:
+        """Analyze performance by pair with comprehensive metrics."""
+        try:
+            pair_performance = {}
+            
+            for pair, results in backtest_results.items():
+                trades = results.get('trades', [])
+                if not trades:
+                    continue
+                
+                # Get basic trade statistics
+                pair_stats = self.calculate_trade_stats(trades)
+                
+                # Calculate equity curve for this pair
+                initial_capital = getattr(self.config, 'initial_capital', 1000000)
+                pair_equity_curve = self.calculate_pair_equity_curve(trades, initial_capital)
+                
+                # Calculate performance metrics from equity curve
+                if not pair_equity_curve.empty:
+                    daily_returns = pair_equity_curve.pct_change().fillna(0)
+                    performance_metrics = self.calculate_performance_metrics(daily_returns)
+                    
+                    # Add performance metrics to pair stats
+                    pair_stats.update({
+                        'annualized_return_pct': performance_metrics.get('annualized_return', 0) * 100,
+                        'annualized_volatility_pct': performance_metrics.get('annualized_volatility', 0) * 100,
+                        'sharpe_ratio': performance_metrics.get('sharpe_ratio', 0),
+                        'max_drawdown_pct': performance_metrics.get('max_drawdown', 0) * 100
+                    })
+                else:
+                    # Fallback: calculate from trade PnL if no equity curve
+                    if pair_stats.get('total_days', 0) > 0:
+                        total_return = pair_stats.get('pnl_sum', 0) / initial_capital
+                        annualized_return = (1 + total_return) ** (252 / pair_stats['total_days']) - 1
+                        
+                        # Estimate volatility from trade PnL
+                        trades_df = pd.DataFrame([trade.__dict__ for trade in trades])
+                        pnl_std = trades_df['pnl'].std() if 'pnl' in trades_df.columns else 0
+                        estimated_vol = pnl_std / initial_capital * np.sqrt(252 / pair_stats['total_days'])
+                        
+                        pair_stats.update({
+                            'annualized_return_pct': annualized_return * 100,
+                            'annualized_volatility_pct': estimated_vol * 100,
+                            'sharpe_ratio': annualized_return / estimated_vol if estimated_vol > 0 else 0,
+                            'max_drawdown_pct': 0  # Cannot calculate without equity curve
+                        })
+                    else:
+                        pair_stats.update({
+                            'annualized_return_pct': 0,
+                            'annualized_volatility_pct': 0,
+                            'sharpe_ratio': 0,
+                            'max_drawdown_pct': 0
+                        })
+                
+                pair_performance[pair] = pair_stats
+            
+            return pair_performance
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing performance by pair: {e}")
+            return {}
+    
+    def analyze_by_regime(self, trades_df: pd.DataFrame) -> Dict:
+        """Analyze performance by market regime with comprehensive metrics."""
+        try:
+            if 'regime' not in trades_df.columns:
+                return {}
+            
+            regime_performance = {}
+            
+            for regime in trades_df['regime'].unique():
+                regime_trades = trades_df[trades_df['regime'] == regime]
+                
+                if regime_trades.empty:
+                    continue
+                
+                # Basic statistics
+                total_trades = len(regime_trades)
+                winning_trades = len(regime_trades[regime_trades['pnl'] > 0])
+                total_pnl = regime_trades['pnl'].sum()
+                avg_pnl = regime_trades['pnl'].mean()
+                win_rate = winning_trades / total_trades if total_trades > 0 else 0
+                
+                # Profit factor
+                total_wins = regime_trades[regime_trades['pnl'] > 0]['pnl'].sum()
+                total_losses = abs(regime_trades[regime_trades['pnl'] < 0]['pnl'].sum())
+                profit_factor = total_wins / total_losses if total_losses > 0 else float('inf')
+                
+                # Time-based metrics
+                if 'entry_date' in regime_trades.columns and 'exit_date' in regime_trades.columns:
+                    regime_trades['entry_date'] = pd.to_datetime(regime_trades['entry_date'])
+                    regime_trades['exit_date'] = pd.to_datetime(regime_trades['exit_date'])
+                    
+                    start_date = regime_trades['entry_date'].min()
+                    end_date = regime_trades['exit_date'].max()
+                    total_days = (end_date - start_date).days
+                    
+                    # Calculate holding periods
+                    regime_trades['holding_period'] = (regime_trades['exit_date'] - regime_trades['entry_date']).dt.days
+                    avg_holding_period = regime_trades['holding_period'].mean()
+                else:
+                    total_days = 252
+                    avg_holding_period = 0
+                
+                # Calculate performance metrics
+                initial_capital = getattr(self.config, 'initial_capital', 1000000)
+                if total_days > 0:
+                    total_return = total_pnl / initial_capital
+                    annualized_return = (1 + total_return) ** (252 / total_days) - 1
+                    
+                    # Estimate volatility from trade PnL
+                    pnl_std = regime_trades['pnl'].std()
+                    estimated_vol = pnl_std / initial_capital * np.sqrt(252 / total_days)
+                    
+                    sharpe_ratio = annualized_return / estimated_vol if estimated_vol > 0 else 0
+                else:
+                    annualized_return = 0
+                    estimated_vol = 0
+                    sharpe_ratio = 0
+                
+                regime_performance[regime] = {
+                    'pnl_sum': total_pnl,
+                    'pnl_mean': avg_pnl,
+                    'pnl_count': total_trades,
+                    'win_rate': win_rate * 100,
+                    'profit_factor': profit_factor,
+                    'avg_holding_period': avg_holding_period,
+                    'annualized_return_pct': annualized_return * 100,
+                    'annualized_volatility_pct': estimated_vol * 100,
+                    'sharpe_ratio': sharpe_ratio,
+                    'max_drawdown_pct': 0  # Cannot calculate without equity curve per regime
+                }
+            
+            return regime_performance
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing performance by regime: {e}")
+            return {}
+
+    def get_all_trades_as_df(self, backtest_results: Dict) -> pd.DataFrame:
+        """Get all trades as a single DataFrame."""
+        try:
+            if not backtest_results or 'trades' not in backtest_results:
+                self.logger.warning("No trades found in backtest results")
+                return pd.DataFrame()
+                
+            trades_df = pd.DataFrame(backtest_results['trades'])
+            if trades_df.empty:
+                self.logger.warning("No trades to analyze")
+                return pd.DataFrame()
+            
+            return trades_df
+            
+        except Exception as e:
+            self.logger.error(f"Error getting all trades as DataFrame: {e}")
+            return pd.DataFrame()
+
+    def get_loss_decomposition(self, trades_df: pd.DataFrame) -> Dict:
+        """Get loss decomposition."""
+        try:
+            # Filter losing trades
+            losing_trades = trades_df[trades_df['pnl'] < 0].copy()
+            
+            if losing_trades.empty:
+                return {}
+            
+            # Calculate total loss
+            total_loss = losing_trades['pnl'].sum()
+            
+            # Loss by pair
+            loss_by_pair = losing_trades.groupby('pair')['pnl'].agg(['sum', 'count', 'mean']).round(2)
+            loss_by_pair['contribution_pct'] = (loss_by_pair['sum'] / total_loss * 100).round(2)
+            
+            # Loss by regime (if available)
+            loss_by_regime = {}
+            if 'regime' in losing_trades.columns:
+                loss_by_regime = losing_trades.groupby('regime')['pnl'].agg(['sum', 'count', 'mean']).round(2)
+                loss_by_regime['contribution_pct'] = (loss_by_regime['sum'] / total_loss * 100).round(2)
+            
+            # Loss by holding period buckets
+            if 'holding_period' in losing_trades.columns:
+                losing_trades['holding_bucket'] = pd.cut(
+                    losing_trades['holding_period'], 
+                    bins=[0, 1, 3, 7, 14, 30, float('inf')],
+                    labels=['1d', '2-3d', '4-7d', '8-14d', '15-30d', '30d+']
+                )
+                loss_by_holding = losing_trades.groupby('holding_bucket')['pnl'].agg(['sum', 'count', 'mean']).round(2)
+                loss_by_holding['contribution_pct'] = (loss_by_holding['sum'] / total_loss * 100).round(2)
+            else:
+                loss_by_holding = pd.DataFrame()
+            
+            return {
+                'total_loss': total_loss,
+                'loss_by_pair': loss_by_pair,
+                'loss_by_regime': loss_by_regime,
+                'loss_by_holding_period': loss_by_holding,
+                'avg_loss': losing_trades['pnl'].mean(),
+                'median_loss': losing_trades['pnl'].median(),
+                'loss_std': losing_trades['pnl'].std()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting loss decomposition: {e}")
             return {} 

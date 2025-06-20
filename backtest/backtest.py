@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Trade:
     """Represents a single pairs trade."""
+    pair: Tuple[str, str]
     entry_date: datetime
     exit_date: Optional[datetime]
     asset1: str
@@ -32,6 +33,7 @@ class Trade:
     entry_hurst: Optional[float] = None
     entry_regime: Optional[int] = None
     stop_loss_k: float = 2.0
+    holding_period: Optional[int] = None
 
 @dataclass
 class BacktestConfig:
@@ -479,6 +481,7 @@ class PairsBacktest:
             return
         direction = 'long' if signal['entry_long'] else 'short'
         trade = Trade(
+            pair=pair,
             entry_date=date,
             exit_date=None,
             asset1=asset1,
@@ -681,7 +684,8 @@ class PairsBacktest:
             'entry_adf_p': t.entry_adf_p,
             'entry_hurst': t.entry_hurst,
             'entry_regime': t.entry_regime,
-            'stop_loss_k': t.stop_loss_k
+            'stop_loss_k': t.stop_loss_k,
+            'holding_period': t.holding_period
         } for t in self.trades])
         trades_df.to_csv(filename, index=False)
         logger.info(f"Saved trade history to {filename}")
@@ -833,7 +837,14 @@ class PairsBacktest:
         trade.exit_date = date
         trade.exit_price1 = self.prices.loc[date, trade.asset1]
         trade.exit_price2 = self.prices.loc[date, trade.asset2]
-        trade.exit_reason = 'exit'
+        
+        # Calculate holding period
+        trade.holding_period = (trade.exit_date - trade.entry_date).days
+        
+        # Set a default exit reason if not already set by a specific condition
+        if trade.exit_reason is None:
+            trade.exit_reason = 'End of Backtest'
+            
         trade.pnl = self.calculate_trade_pnl(trade)
 
         # Record realized P&L for the day
@@ -864,6 +875,7 @@ class PairsBacktest:
         """Open a new trade and update equity curve."""
         asset1, asset2 = pair
         trade = Trade(
+            pair=pair,
             entry_date=date,
             exit_date=None,
             asset1=asset1,
