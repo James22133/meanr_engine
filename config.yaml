@@ -1,3 +1,214 @@
+# Enhanced Mean Reversion Pairs Trading Engine Configuration
+
+# Data configuration
+data:
+  symbols:
+    - "SPY"
+    - "QQQ"
+    - "IWM"
+    - "EFA"
+    - "EMB"
+    - "GLD"
+    - "SLV"
+    - "USO"
+    - "TLT"
+    - "IEF"
+    - "XOM"
+    - "CVX"
+    - "SLB"
+    - "HAL"
+    - "MPC"
+    - "VLO"
+    - "COP"
+    - "EOG"
+    - "DVN"
+    - "ET"
+    - "EPD"
+    - "OXY"
+    - "XLE"
+    - "AGG"
+    - "PPLT"
+    - "UNG"
+    - "BNO"
+    - "XLK"
+    - "SMH"
+  start_date: "2018-01-01"
+  end_date: "2024-12-31"
+  use_cache: false
+  force_refresh: false
+
+# Signal generation configuration
+signals:
+  lookback: 20
+  entry_threshold: 2.0
+  exit_threshold: 0.5
+  zscore_window: 20
+  entry_quantile: 0.9
+  exit_quantile: 0.5
+  allow_all_regimes: true
+  use_adaptive_thresholds: true
+  zscore_quantile_window: 60
+
+# Regime detection configuration
+regime:
+  hmm_n_components: 3
+  regime_volatility_window: 20
+  stable_regime_index: 0
+  regime_entry_only: true
+  allowed_entry_regimes: [0, 1]
+
+# Backtest configuration
+backtest:
+  initial_capital: 1000000
+  target_volatility: 0.15
+  slippage_bps: 5.0
+  commission_bps: 10.0
+  stop_loss_k: 2.0
+  zscore_entry_threshold: 1.5
+  zscore_exit_threshold: 0.5
+  max_hold_days: 15
+  target_profit_pct: 0.05
+  rebalance_freq: 21
+  max_concurrent_positions: 5
+  regime_scaling: true
+  regime_volatility_multiplier: 1.0
+  regime_trend_multiplier: 1.0
+
+# Enhanced metrics configuration
+metrics:
+  risk_free_rate: 0.02
+  confidence_level: 0.95
+  periods_per_year: 252
+  benchmark_sharpe: 1.0
+
+# Statistical thresholds for enhanced pair selection
+statistical:
+  adf_pvalue_max: 0.05
+  coint_pvalue_max: 0.05
+  r_squared_min: 0.7
+  correlation_min: 0.8
+  hurst_threshold: 0.5
+  min_observations: 252
+
+# Pair selection configuration
+pair_selection:
+  min_correlation: 0.5
+  correlation_window: 60
+  min_spread_stability: 0.4
+  spread_stability_window: 60
+  max_zscore_volatility: 1.8
+  min_cointegration_stability: 0.3
+  stability_lookback: 20
+  min_data_points: 100
+  top_n_pairs: 5
+  sector_filter_enabled: true
+  min_pair_sharpe: 0.8
+
+# Scoring weights for pair selection
+scoring_weights:
+  cointegration: 0.3
+  hurst: 0.2
+  adf: 0.15
+  zscore_vol: 0.15
+  correlation: 0.1
+  spread_stability: 0.1
+
+# Risk management configuration
+risk_management:
+  stop_loss:
+    mode: "atr"
+    atr_lookback: 20
+    atr_multiplier: 2.0
+    fixed_multiplier: 0.02
+  
+  skew_filter:
+    enabled: true
+    lookback: 60
+    min_down_up_ratio: 0.5
+    min_sortino: 0.5
+  
+  position_sizing:
+    regime_aware: true
+    base_size: 0.1
+    regime_multipliers:
+      high_volatility: 0.5
+      low_volatility: 1.5
+      transition: 1.0
+  
+  risk_metrics:
+    risk_free_rate: 0.02
+    benchmark_sharpe: 1.0
+
+# Risk control configuration
+risk_control:
+  atr_multiplier: 2.0
+  atr_period: 14
+  max_drawdown_per_pair: 0.05
+  max_drawdown_per_trade: 0.02
+  max_pair_exposure: 0.1
+  volatility_scaling: true
+  max_pct_portfolio: 0.10
+  max_leverage: 2.0
+  max_total_exposure: 1.5
+  max_concurrent_trades_per_pair: 2
+  min_risk_reward_ratio: 1.5
+  max_correlation_exposure: 0.3
+
+# Sector mapping
+sector_map:
+  XOM: Energy
+  CVX: Energy
+  SLB: Energy
+  HAL: Energy
+  MPC: Energy
+  VLO: Energy
+  COP: Energy
+  EOG: Energy
+  DVN: Energy
+  ET: Energy
+  EPD: Energy
+  OXY: Energy
+
+# Manual pair list
+manual_pair_list:
+  - ["XOM", "CVX"]
+  - ["COP", "XOM"]
+  - ["SLB", "HAL"]
+  - ["MPC", "VLO"]
+  - ["EOG", "DVN"]
+
+# Pair-specific parameters
+pair_params:
+  XOM_CVX:
+    entry_threshold: 1.5
+    exit_threshold: 0.5
+    stop_loss_k: 2.0
+    max_holding_days: 20
+    min_days_between_trades: 5
+    profit_target_pct: 0.02
+  COP_XOM:
+    entry_threshold: 1.5
+    exit_threshold: 0.4
+    stop_loss_k: 2.2
+    max_holding_days: 15
+    min_days_between_trades: 7
+    profit_target_pct: 0.015
+
+# Grid search parameters
+grid_search:
+  entry_thresholds: [1.5, 2.0, 2.5]
+  exit_thresholds: [0.1, 0.2, 0.3]
+  stop_loss_ks: [2.0, 2.5, 3.0]
+
+# Walk-forward validation parameters
+walkforward:
+  train_months: 24
+  test_months: 6
+  z_entry_values: [1.0, 1.5, 2.0]
+  z_exit_values: [0.5, 0.0]
+  scoring_metric: sharpe_ratio
+
+# Legacy parameters (for backward compatibility)
 ETF_TICKERS:
   - "SPY"
   - "QQQ"
@@ -21,13 +232,13 @@ ETF_TICKERS:
   - "ET"
   - "EPD"
   - "OXY"
-  - "XLE"  # Energy Sector ETF
-  - "AGG"  # Aggregate Bond ETF
-  - "PPLT" # Platinum ETF
-  - "UNG"  # Natural Gas ETF
-  - "BNO"  # Brent Oil ETF
-  - "XLK"  # Technology Sector ETF
-  - "SMH"  # Semiconductor ETF
+  - "XLE"
+  - "AGG"
+  - "PPLT"
+  - "UNG"
+  - "BNO"
+  - "XLK"
+  - "SMH"
 START_DATE: "2018-01-01"
 END_DATE: "2024-12-31"
 use_cache: false
@@ -40,236 +251,12 @@ REGIME_VOLATILITY_WINDOW: 20
 STABLE_REGIME_INDEX: 0
 TOP_N_PAIRS: 5
 SECTOR_FILTER_ENABLED: true
-SECTOR_MAP:
-  XOM: Energy
-  CVX: Energy
-  SLB: Energy
-  HAL: Energy
-  MPC: Energy
-  VLO: Energy
-  COP: Energy
-  EOG: Energy
-  DVN: Energy
-  ET: Energy
-  EPD: Energy
-  OXY: Energy
-MANUAL_PAIR_LIST:
-  - ["XOM", "CVX"]
-  - ["COP", "XOM"]
-  - ["SLB", "HAL"]
-  - ["MPC", "VLO"]
-  - ["EOG", "DVN"]
-PAIR_PARAMS:
-  XOM_CVX:
-    entry_threshold: 1.5
-    exit_threshold: 0.5
-    stop_loss_k: 2.0
-    max_holding_days: 20
-    min_days_between_trades: 5
-    profit_target_pct: 0.02
-  COP_XOM:
-    entry_threshold: 1.5
-    exit_threshold: 0.4
-    stop_loss_k: 2.2
-    max_holding_days: 15
-    min_days_between_trades: 7
-    profit_target_pct: 0.015
-
-# Configuration for the backtester
-backtest:
-  initial_capital: 1000000
-  target_volatility: 0.15
-  slippage_bps: 5.0
-  commission_bps: 10.0
-  stop_loss_k: 2.0
-  zscore_entry_threshold: 1.5
-  zscore_exit_threshold: 0.5
-  max_hold_days: 15
-  target_profit_pct: 0.05
-  rebalance_freq: 21
-  max_concurrent_positions: 5
-
-# Parameter ranges for CLI grid search
-grid_search:
-  entry_thresholds: [1.5, 2.0, 2.5]
-  exit_thresholds: [0.1, 0.2, 0.3]
-  stop_loss_ks: [2.0, 2.5, 3.0]
-
-# Trading Parameters
 ALLOW_ALL_REGIMES: true
 USE_ADAPTIVE_THRESHOLDS: true
 ZSCORE_QUANTILE_WINDOW: 60
 ENTRY_QUANTILE: 0.9
 EXIT_QUANTILE: 0.5
-
-# Minimum Sharpe ratio for pair inclusion
 MIN_PAIR_SHARPE: 0.8
-
-# Regime entry constraint
 REGIME_ENTRY_ONLY: true
-
-# Regimes allowed for entry (list)
 ALLOWED_ENTRY_REGIMES: [0, 1]
-
-# Risk Management
 min_days_between_trades: 5
-
-# Risk Control Configuration
-risk_control:
-  # ATR-based stop loss settings
-  atr_multiplier: 2.0  # Multiplier for ATR-based stop loss
-  atr_period: 14  # Period for ATR calculation
-  
-  # Drawdown limits
-  max_drawdown_per_pair: 0.05  # Maximum 5% drawdown per pair
-  max_drawdown_per_trade: 0.02  # Maximum 2% drawdown per trade
-  
-  # Position sizing and exposure limits
-  max_pair_exposure: 0.1  # Maximum 10% exposure per pair
-  volatility_scaling: true  # Enable volatility-based position scaling
-  max_pct_portfolio: 0.10  # Maximum 10% of portfolio per trade
-  max_leverage: 2.0        # Maximum portfolio leverage
-  max_total_exposure: 1.5  # Maximum total exposure relative to capital
-  
-  # Additional risk parameters
-  max_concurrent_trades_per_pair: 2  # Maximum concurrent trades per pair
-  min_risk_reward_ratio: 1.5  # Minimum risk/reward ratio for trade entry
-  max_correlation_exposure: 0.3  # Maximum exposure to highly correlated pairs
-
-# Walk-forward validation parameters
-walkforward:
-  train_months: 24
-  test_months: 6
-  z_entry_values: [1.0, 1.5, 2.0]
-  z_exit_values: [0.5, 0.0]
-  scoring_metric: sharpe_ratio
-
-risk_management:
-  # Stop-loss settings
-  stop_loss:
-    mode: "atr"  # Options: "fixed", "atr"
-    atr_lookback: 20  # Lookback period for ATR calculation
-    atr_multiplier: 2.0  # Multiplier for ATR-based stop-loss
-    fixed_multiplier: 0.02  # Fixed stop-loss percentage (2%)
-  
-  # Skew filter settings
-  skew_filter:
-    enabled: true
-    lookback: 60  # Days to look back for skew calculation
-    min_down_up_ratio: 0.5  # Minimum acceptable downside/upside ratio
-    min_sortino: 0.5  # Minimum acceptable Sortino ratio
-  
-  # Position sizing settings
-  position_sizing:
-    regime_aware: true  # Adjust position size based on market regime
-    base_size: 0.1  # Base position size (10% of portfolio)
-    regime_multipliers:
-      high_volatility: 0.5  # Reduce size in high volatility
-      low_volatility: 1.5  # Increase size in low volatility
-      transition: 1.0  # Normal size in transition periods
-  
-  # Risk metrics
-  risk_metrics:
-    risk_free_rate: 0.02  # Annual risk-free rate (2%)
-    benchmark_sharpe: 1.0  # Benchmark Sharpe ratio for PSR calculation
-
-# Pair Selection and Filtering Parameters
-PAIR_SELECTION:
-  min_correlation: 0.5
-  correlation_window: 60
-  min_spread_stability: 0.4
-  spread_stability_window: 60
-  max_zscore_volatility: 1.8
-  min_cointegration_stability: 0.3
-  stability_lookback: 20
-  min_data_points: 100
-
-# Enhanced scoring weights
-SCORING_WEIGHTS:
-  cointegration: 0.3
-  hurst: 0.2
-  adf: 0.15
-  zscore_vol: 0.15
-  correlation: 0.1
-  spread_stability: 0.1
-
-pair_scoring:
-  weights:
-    correlation: 0.25
-    coint_p: 0.25
-    hurst: 0.25
-    zscore_vol: 0.25
-
-# Curated Pair Universes
-PAIR_UNIVERSES:
-  energy:
-    description: "Energy sector ETFs"
-    pairs:
-      - ["XLE", "XOM"]
-      - ["XLE", "CVX"]
-      - ["XOM", "CVX"]
-    min_correlation: 0.5
-    min_spread_stability: 0.4
-    max_zscore_volatility: 1.8
-    min_cointegration_stability: 0.3
-
-  bonds:
-    description: "Bond ETFs"
-    pairs:
-      - ["TLT", "IEF"]
-      - ["TLT", "AGG"]
-      - ["IEF", "AGG"]
-    min_correlation: 0.5
-    min_spread_stability: 0.4
-    max_zscore_volatility: 1.8
-    min_cointegration_stability: 0.3
-
-  metals:
-    description: "Precious metals ETFs"
-    pairs:
-      - ["GLD", "SLV"]
-      - ["GLD", "PPLT"]
-      - ["SLV", "PPLT"]
-    min_correlation: 0.5
-    min_spread_stability: 0.4
-    max_zscore_volatility: 1.8
-    min_cointegration_stability: 0.3
-
-  energy_proxy:
-    description: "Energy proxy ETFs"
-    pairs:
-      - ["UNG", "USO"]
-      - ["UNG", "BNO"]
-      - ["USO", "BNO"]
-    min_correlation: 0.5
-    min_spread_stability: 0.4
-    max_zscore_volatility: 1.8
-    min_cointegration_stability: 0.3
-
-  tech:
-    description: "Technology sector ETFs"
-    pairs:
-      - ["XLK", "QQQ"]
-      - ["XLK", "SMH"]
-      - ["QQQ", "SMH"]
-    min_correlation: 0.5
-    min_spread_stability: 0.4
-    max_zscore_volatility: 1.8
-    min_cointegration_stability: 0.3
-
-# Visualization settings
-visualization:
-  save_plots: true
-  plot_types:
-    - "correlation"
-    - "spread"
-    - "zscore"
-    - "cointegration"
-    - "stability"
-  plot_params:
-    correlation_window: 60
-    spread_window: 60
-    zscore_window: 20
-    cointegration_window: 60
-    stability_window: 120
-  output_dir: "reports/plots"

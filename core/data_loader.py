@@ -114,3 +114,20 @@ class DataLoader:
             self.logger.warning(f"Still missing values after fill for pair {pair}")
             return None
         return pair_data 
+
+    def get_all_pairs(self) -> List[Tuple[str, str]]:
+        """Generate all possible pairs from the loaded tickers."""
+        if self.data is None:
+            self.logger.error("No data loaded. Cannot generate pairs.")
+            return []
+        
+        tickers = list(self.data.columns)
+        pairs = []
+        
+        # Generate all possible combinations
+        for i in range(len(tickers)):
+            for j in range(i + 1, len(tickers)):
+                pairs.append((tickers[i], tickers[j]))
+        
+        self.logger.info(f"Generated {len(pairs)} pairs from {len(tickers)} tickers")
+        return pairs 

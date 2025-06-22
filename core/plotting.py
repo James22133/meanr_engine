@@ -43,6 +43,107 @@ class PlotGenerator:
         except Exception as e:
             self.logger.error(f"Error plotting pair analysis: {str(e)}")
 
+    def plot_vectorbt_analysis(self, prices: pd.DataFrame, entries: pd.Series, exits: pd.Series, 
+                          equity_curve: pd.Series, title: str, save_path: str = None) -> None:
+        """
+        Plot pair analysis with vectorbt results.
+        
+        Args:
+            prices: DataFrame with price data
+            entries: Series with entry signals
+            exits: Series with exit signals
+            equity_curve: Series with equity curve
+            title: Title for the plot
+            save_path: Path to save the plot
+        """
+        try:
+            # Create figure with subplots
+            fig, axes = plt.subplots(3, 1, figsize=(15, 12))
+            
+            # Plot 1: Price data with signals
+            if len(prices.columns) >= 2:
+                axes[0].plot(prices.index, prices.iloc[:, 0], label=prices.columns[0], alpha=0.7)
+                axes[0].plot(prices.index, prices.iloc[:, 1], label=prices.columns[1], alpha=0.7)
+                
+                # Add entry/exit signals
+                entry_points = entries[entries != 0]
+                exit_points = exits[exits != 0]
+                
+                if not entry_points.empty:
+                    axes[0].scatter(entry_points.index, prices.loc[entry_points.index, prices.columns[0]], 
+                                  color='green', marker='^', s=100, label='Entries', alpha=0.8)
+                if not exit_points.empty:
+                    axes[0].scatter(exit_points.index, prices.loc[exit_points.index, prices.columns[0]], 
+                                  color='red', marker='v', s=100, label='Exits', alpha=0.8)
+                
+                axes[0].set_title(f'Price Data with Signals - {title}')
+                axes[0].set_ylabel('Price')
+                axes[0].legend()
+                axes[0].grid(True, alpha=0.3)
+            
+            # Plot 2: Equity curve
+            if equity_curve is not None:
+                equity_curve.plot(ax=axes[1])
+                axes[1].set_title(f'Equity Curve - {title}')
+                axes[1].set_ylabel('Equity')
+                axes[1].grid(True, alpha=0.3)
+            
+            # Plot 3: Returns
+            if equity_curve is not None:
+                returns = equity_curve.pct_change().dropna()
+                returns.plot(ax=axes[2], kind='bar', alpha=0.7)
+                axes[2].set_title(f'Daily Returns - {title}')
+                axes[2].set_ylabel('Returns')
+                axes[2].grid(True, alpha=0.3)
+            
+            # Adjust layout
+            plt.tight_layout()
+            
+            # Save plot if path provided
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                self.logger.info(f"Saved plot to {save_path}")
+            else:
+                plt.show()
+            
+            plt.close()
+            
+        except Exception as e:
+            self.logger.error(f"Error plotting pair analysis for {title}: {str(e)}")
+
+    def plot_equity_curves(self, equity_curve: pd.Series, title: str, save_path: str = None) -> None:
+        """
+        Plot equity curves.
+        
+        Args:
+            equity_curve: Series with equity curve data
+            title: Title for the plot
+            save_path: Path to save the plot
+        """
+        try:
+            plt.figure(figsize=(15, 8))
+            
+            # Plot equity curve
+            equity_curve.plot(linewidth=2)
+            
+            # Add labels
+            plt.title(f'Equity Curve - {title}', fontsize=14, fontweight='bold')
+            plt.xlabel('Date', fontsize=12)
+            plt.ylabel('Equity ($)', fontsize=12)
+            plt.grid(True, alpha=0.3)
+            
+            # Save plot if path provided
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                self.logger.info(f"Saved plot to {save_path}")
+            else:
+                plt.show()
+            
+            plt.close()
+            
+        except Exception as e:
+            self.logger.error(f"Error plotting equity curves for {title}: {str(e)}")
+
     def _plot_single_pair_analysis(self, pair: tuple, results: Dict, metrics: Dict, save_dir: str) -> None:
         """Plot analysis for a single pair."""
         try:

@@ -1,0 +1,101 @@
+# Enhanced Mean Reversion Pairs Trading Configuration
+# Includes vectorbt, empyrical, and statsmodels parameters
+
+data:
+  symbols:
+    - "XLE"
+    - "XOM" 
+    - "CVX"
+    - "GLD"
+    - "SLV"
+    - "TLT"
+    - "IEF"
+    - "SPY"
+    - "QQQ"
+    - "IWM"
+  start_date: "2020-01-01"
+  end_date: "2024-12-31"
+  data_source: "yfinance"
+  min_data_points: 252
+
+# Enhanced statistical thresholds for pair selection
+statistical:
+  adf_pvalue_max: 0.05          # Maximum p-value for ADF test
+  coint_pvalue_max: 0.05        # Maximum p-value for cointegration test
+  r_squared_min: 0.7            # Minimum R-squared for linear relationship
+  correlation_min: 0.8          # Minimum correlation coefficient
+  hurst_threshold: 0.5          # Maximum Hurst exponent for mean reversion
+  min_observations: 252         # Minimum number of observations
+
+signals:
+  lookback: 20
+  entry_threshold: 2.0
+  exit_threshold: 0.5
+  min_holding_period: 1
+  max_holding_period: 30
+
+regime:
+  lookback: 60
+  volatility_threshold: 0.02
+  trend_threshold: 0.01
+  regime_scaling: true
+
+# Enhanced backtest configuration
+backtest:
+  initial_capital: 3000000
+  commission_bps: 1.0           # 1 basis point commission
+  slippage_bps: 2.0             # 2 basis points slippage
+  max_concurrent_positions: 5
+  regime_scaling: true
+  regime_volatility_multiplier: 1.0
+  regime_trend_multiplier: 1.0
+  
+  # Risk management
+  stop_loss_k: 2.0
+  max_hold_days: null
+  target_profit_pct: null
+  max_drawdown_limit: 0.25      # 25% maximum drawdown
+  position_size_limit: 0.2      # 20% maximum position size
+
+# Enhanced metrics configuration
+metrics:
+  risk_free_rate: 0.02          # 2% annual risk-free rate
+  confidence_level: 0.95        # For VaR calculations
+  periods_per_year: 252         # Trading days per year
+  benchmark_symbol: "SPY"       # Benchmark for relative metrics
+
+# VectorBT specific configuration
+vectorbt:
+  use_ray: true                 # Use Ray for parallel processing
+  optimization_engine: "ray"    # Optimization engine
+  show_progress: true
+  param_ranges:
+    lookback: [10, 15, 20, 25, 30]
+    entry_threshold: [1.5, 2.0, 2.5, 3.0]
+    exit_threshold: [0.3, 0.5, 0.7, 1.0]
+
+# Enhanced diagnostics configuration
+diagnostics:
+  save_plots: true
+  plot_format: "png"
+  plot_dpi: 300
+  include_regime_analysis: true
+  include_statistical_tests: true
+  save_reports: true
+
+# Performance optimization
+optimization:
+  enable_hyperparameter_tuning: true
+  optimization_method: "grid_search"  # or "random_search"
+  max_iterations: 100
+  cv_folds: 5
+  metric_to_optimize: "sharpe_ratio"  # or "calmar_ratio", "total_return"
+
+# Output configuration
+output:
+  save_results: true
+  results_format: "json"
+  include_enhanced_metrics: true
+  include_statistical_report: true
+  include_optimization_results: true
+  log_level: "INFO" 

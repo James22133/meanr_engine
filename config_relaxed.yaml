@@ -1,0 +1,114 @@
+# Relaxed Mean Reversion Pairs Trading Engine Configuration
+
+# Data configuration
+data:
+  symbols:
+    - "SPY"
+    - "QQQ"
+    - "IWM"
+    - "EFA"
+    - "EMB"
+    - "GLD"
+    - "SLV"
+    - "USO"
+    - "TLT"
+    - "IEF"
+    - "XOM"
+    - "CVX"
+    - "SLB"
+    - "HAL"
+    - "MPC"
+    - "VLO"
+    - "COP"
+    - "EOG"
+    - "DVN"
+    - "ET"
+    - "EPD"
+    - "OXY"
+    - "XLE"
+    - "AGG"
+    - "PPLT"
+    - "UNG"
+    - "BNO"
+    - "XLK"
+    - "SMH"
+  start_date: "2018-01-01"
+  end_date: "2024-12-31"
+  use_cache: false
+  force_refresh: false
+
+# Signal generation configuration
+signals:
+  lookback: 20
+  entry_threshold: 2.0
+  exit_threshold: 0.5
+  zscore_window: 20
+  entry_quantile: 0.9
+  exit_quantile: 0.5
+  allow_all_regimes: true
+  use_adaptive_thresholds: true
+  zscore_quantile_window: 60
+
+# Regime detection configuration
+regime:
+  hmm_n_components: 3
+  regime_volatility_window: 20
+  stable_regime_index: 0
+  regime_entry_only: true
+  allowed_entry_regimes: [0, 1]
+
+# Backtest configuration
+backtest:
+  initial_capital: 1000000
+  target_volatility: 0.15
+  slippage_bps: 5.0
+  commission_bps: 10.0
+  stop_loss_k: 2.0
+  zscore_entry_threshold: 1.5
+  zscore_exit_threshold: 0.5
+  max_hold_days: 15
+  target_profit_pct: 0.05
+  rebalance_freq: 21
+  max_concurrent_positions: 5
+  regime_scaling: true
+  regime_volatility_multiplier: 1.0
+  regime_trend_multiplier: 1.0
+
+# Enhanced metrics configuration
+metrics:
+  risk_free_rate: 0.02
+  confidence_level: 0.95
+  periods_per_year: 252
+  benchmark_sharpe: 1.0
+
+# Relaxed statistical thresholds for enhanced pair selection
+statistical:
+  adf_pvalue_max: 0.10  # Relaxed from 0.05
+  coint_pvalue_max: 0.10  # Relaxed from 0.05
+  r_squared_min: 0.5  # Relaxed from 0.7
+  correlation_min: 0.6  # Relaxed from 0.8
+  hurst_threshold: 0.7  # Relaxed from 0.5 (allows more trending pairs)
+  min_observations: 252
+
+# Pair selection configuration
+pair_selection:
+  min_correlation: 0.5
+  correlation_window: 60
+  min_spread_stability: 0.4
+  spread_stability_window: 60
+  max_zscore_volatility: 1.8
+  min_cointegration_stability: 0.3
+  stability_lookback: 20
+  min_data_points: 100
+  top_n_pairs: 10  # Increased from 5
+  sector_filter_enabled: false  # Disabled to allow more pairs
+  min_pair_sharpe: 0.5  # Relaxed from 0.8
+
+# Scoring weights for pair selection
+scoring_weights:
+  cointegration: 0.3
+  hurst: 0.2
+  adf: 0.15
+  zscore_vol: 0.15
+  correlation: 0.1
+  spread_stability: 0.1 

@@ -31,8 +31,10 @@ def train_hmm(features, n_components=2, n_iter=100):
         hmmlearn.hmm.GaussianHMM: Trained HMM model.
     """
     # Ensure features are in the correct shape (samples, features)
+    if isinstance(features, pd.Series):
+        features = features.values
     if features.ndim == 1:
-        features = features.values.reshape(-1, 1)
+        features = features.reshape(-1, 1)
 
     # Use GaussianHMM for continuous features
     model = hmm.GaussianHMM(n_components=n_components, covariance_type="diag", n_iter=n_iter, random_state=42)
@@ -51,11 +53,36 @@ def predict_regimes(model, features):
         np.ndarray: Array of predicted hidden states (regimes).
     """
      # Ensure features are in the correct shape (samples, features)
+    if isinstance(features, pd.Series):
+        features = features.values
     if features.ndim == 1:
-        features = features.values.reshape(-1, 1)
+        features = features.reshape(-1, 1)
 
     regimes = model.predict(features)
     return regimes
+
+class RegimeDetector:
+    """Wrapper for volatility/HMM-based regime detection."""
+    def __init__(self, config=None):
+        self.config = config or {}
+        self.n_components = self.config.get('hmm_n_components', 3)
+        self.window = self.config.get('regime_volatility_window', 20)
+        self.n_iter = self.config.get('n_iter', 100)
+
+    def detect_regimes(self, price_data: pd.DataFrame) -> dict:
+        """Detect regimes for each pair or for the market as a whole."""
+        regimes = {}
+        # If price_data is a DataFrame of multiple assets, process each pair/column
+        for col in price_data.columns:
+            prices = price_data[col]
+            vol = calculate_volatility(prices, window=self.window)
+            if len(vol) < self.n_components:
+                continue
+            hmm_model = train_hmm(vol, n_components=self.n_components, n_iter=self.n_iter)
+            regime_states = predict_regimes(hmm_model, vol)
+            regime_series = pd.Series(regime_states, index=vol.index)
+            regimes[(col,)] = regime_series
+        return regimes
 
 # Example Usage (for demonstration)
 # if __name__ == "__main__":
