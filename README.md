@@ -98,10 +98,12 @@ meanr_engine/
 
 `alpaca_backtrader_sim.py` runs the pairs strategy using Backtrader and
 Alpaca's paper trading API. Pass your Alpaca credentials and choose
-between backtest or live modes:
+between backtest or live modes. Multiple pairs can be traded
+simultaneously by providing them via the `--pairs` option:
 
 ```bash
-python alpaca_backtrader_sim.py --api_key YOUR_KEY --secret_key YOUR_SECRET --mode backtest
+python alpaca_backtrader_sim.py --api_key YOUR_KEY --secret_key YOUR_SECRET \
+    --pairs VLO/XLE,COP/CVX,EFA/QQQ --mode backtest
 ```
 
 Backtest mode fetches historical data from Alpaca while live mode
