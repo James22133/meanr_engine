@@ -94,6 +94,19 @@ meanr_engine/
 └── README.md
 ```
 
+## Live Simulation with Alpaca
+
+`alpaca_backtrader_sim.py` runs the pairs strategy using Backtrader and
+Alpaca's paper trading API. Pass your Alpaca credentials and choose
+between backtest or live modes:
+
+```bash
+python alpaca_backtrader_sim.py --api_key YOUR_KEY --secret_key YOUR_SECRET --mode backtest
+```
+
+Backtest mode fetches historical data from Alpaca while live mode
+subscribes to daily bars for simulated execution.
+
 ## Running Tests
 
 Before running the tests, ensure all dependencies are installed:
