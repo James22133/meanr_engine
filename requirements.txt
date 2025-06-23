@@ -13,3 +13,5 @@ statsmodels>=0.13.0
 plotly>=5.0.0
 dash>=2.0.0
 dash-bootstrap-components>=1.0.0
+backtrader>=1.9.78.123
+alpaca-trade-api>=3.0.0
