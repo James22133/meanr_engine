@@ -15,6 +15,23 @@ from dataclasses import dataclass
 from datetime import datetime
 import warnings
 
+# Fix for vectorbt API change - use new import
+try:
+    from vectorbt.utils.params import create_param_combs as combine_params
+except ImportError:
+    # Fallback for older versions
+    try:
+        from vectorbt.utils import combine_params
+    except ImportError:
+        # Final fallback - create our own simple version
+        def combine_params(param_dict):
+            """Simple parameter combination generator."""
+            import itertools
+            keys = list(param_dict.keys())
+            values = list(param_dict.values())
+            combinations = list(itertools.product(*values))
+            return pd.DataFrame(combinations, columns=keys)
+
 warnings.filterwarnings('ignore')
 
 @dataclass
@@ -238,20 +255,18 @@ class VectorBTBacktest:
                     'exit_threshold': np.arange(0.3, 1.1, 0.2)
                 }
             
-            # Create parameter combinations
-            param_combinations = vbt.utils.combine_params(param_ranges)
-            
-            # Run optimization
+            # Create parameter combinations using tuple format for vectorbt 0.27.3
+            param_tuples = tuple(param_ranges.items())
+            param_combinations = combine_params(param_tuples)
+
+            # Define the backtest runner
             def run_backtest_wrapper(lookback, entry_threshold, exit_threshold):
                 entries, exits = self.generate_signals_vectorized(
                     price1, price2, lookback, entry_threshold, exit_threshold
                 )
-                
                 if regime_series is not None:
                     entries = self.apply_regime_scaling(entries, regime_series)
-                
                 prices = pd.DataFrame({'asset1': price1, 'asset2': price2})
-                
                 portfolio = vbt.Portfolio.from_signals(
                     prices, entries, exits,
                     init_cash=self.config.initial_capital,
@@ -259,22 +274,25 @@ class VectorBTBacktest:
                     slippage=self.config.slippage,
                     freq='1D'
                 )
-                
                 return portfolio.sharpe_ratio()
-            
-            # Run optimization
-            results = vbt.run_func(
-                run_backtest_wrapper,
-                param_combinations,
-                engine='ray',  # Use Ray for parallel processing
-                show_progress=True
-            )
-            
+
+            # Iterate over parameter combinations as dicts
+            results = []
+            for params in param_combinations.to_dict(orient="records"):
+                try:
+                    sharpe = run_backtest_wrapper(**params)
+                except Exception as e:
+                    self.logger.error(f"Error in optimization for params {params}: {e}")
+                    sharpe = float('-inf')
+                results.append(sharpe)
+            results = pd.Series(results, index=param_combinations.index)
+
             # Find best parameters
             best_idx = results.idxmax()
             best_params = param_combinations.iloc[best_idx]
             best_sharpe = results.iloc[best_idx]
-            
+            self.logger.info(f"Best parameters found: {best_params.to_dict()}")
+            self.logger.info(f"Best Sharpe ratio: {best_sharpe:.4f}")
             return {
                 'best_params': best_params.to_dict(),
                 'best_sharpe': best_sharpe,
