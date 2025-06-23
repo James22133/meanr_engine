@@ -1,4 +1,5 @@
 import backtrader as bt
+import alpaca_trade_api as tradeapi
 from datetime import datetime
 import numpy as np
 import statsmodels.api as sm
@@ -40,8 +41,7 @@ class PairsTradingStrategy(bt.Strategy):
 
     def next(self):
         open_trades = sum(
-            1
-            for info in self.pair_info
+            1 for info in self.pair_info
             if self.getposition(info["data0"]).size or self.getposition(info["data1"]).size
         )
 
@@ -57,18 +57,12 @@ class PairsTradingStrategy(bt.Strategy):
             model = sm.OLS(prices1, x).fit()
             info["hedge_ratio"] = model.params[1]
 
-
             spread = prices1 - info["hedge_ratio"] * prices2
             zscore = (spread[-1] - spread.mean()) / spread.std()
-
-            # Adjusted entry threshold to allow more signals (~1.5 std deviations)
-            # Optional future extension: Use percentile-based entry threshold
-            # Example: np.percentile(spread, 85) instead of static 1.5
 
             pos0 = self.getposition(d0).size
             pos1 = self.getposition(d1).size
             has_position = pos0 or pos1
-
             pair_label = f"{info['asset1']}/{info['asset2']}"
 
             if not has_position:
@@ -117,7 +111,6 @@ class PairsTradingStrategy(bt.Strategy):
                             self.log(f"Stop loss {info['asset2']}")
                             self.close(d1)
 
-
 def run_backtest(api_key, secret_key, base_url, pairs, start="2023-01-01", end="2024-06-01"):
     store = bt.stores.AlpacaStore(key_id=api_key, secret_key=secret_key, paper=True, usePolygon=False, base_url=base_url)
     cerebro = bt.Cerebro()
@@ -139,7 +132,6 @@ def run_backtest(api_key, secret_key, base_url, pairs, start="2023-01-01", end="
     cerebro.run()
     cerebro.plot()
 
-
 def run_live(api_key, secret_key, base_url, pairs):
     store = bt.stores.AlpacaStore(key_id=api_key, secret_key=secret_key, paper=True, usePolygon=False, base_url=base_url)
     cerebro = bt.Cerebro()
@@ -154,7 +146,6 @@ def run_live(api_key, secret_key, base_url, pairs):
         cerebro.adddata(data0, name=asset1)
         cerebro.adddata(data1, name=asset2)
     cerebro.run()
-
 
 if __name__ == "__main__":
     import argparse
@@ -173,6 +164,6 @@ if __name__ == "__main__":
 
     if args.mode == "backtest":
         run_backtest(args.api_key, args.secret_key, args.base_url, pairs,
-                    start=args.start, end=args.end)
+                     start=args.start, end=args.end)
     else:
         run_live(args.api_key, args.secret_key, args.base_url, pairs)
