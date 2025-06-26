@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple, Optional
 import logging
 from dataclasses import dataclass
 import statsmodels.api as sm
+from collections import defaultdict
 
 @dataclass
 class StatisticalThresholds:
@@ -23,16 +24,88 @@ class StatisticalThresholds:
     correlation_min: float = 0.8  # Minimum correlation coefficient
     hurst_threshold: float = 0.5  # Maximum Hurst exponent for mean reversion
     min_observations: int = 252  # Minimum number of observations
+    max_volatility_spread: float = 2.0  # Maximum volatility spread ratio (new)
+    max_sector_pairs: int = 3  # Maximum pairs per sector (new)
+    min_sector_diversification: int = 3  # Minimum number of sectors (new)
+
+@dataclass
+class SectorMapping:
+    """Sector mapping for diversification."""
+    energy: List[str] = None
+    tech: List[str] = None
+    financials: List[str] = None
+    industrials: List[str] = None
+    consumer: List[str] = None
+    materials: List[str] = None
+    utilities: List[str] = None
+    healthcare: List[str] = None
+    
+    def __post_init__(self):
+        if self.energy is None:
+            self.energy = ['XOM', 'CVX', 'SLB', 'HAL', 'MPC', 'VLO', 'COP', 'EOG', 'DVN', 'ET', 'EPD', 'OXY', 'XLE', 'UNG', 'BNO', 'USO']
+        if self.tech is None:
+            self.tech = ['QQQ', 'XLK', 'SMH']
+        if self.financials is None:
+            self.financials = ['XLF', 'KBE', 'KRE']
+        if self.industrials is None:
+            self.industrials = ['XLI', 'VIS']
+        if self.consumer is None:
+            self.consumer = ['XLP', 'VDC', 'XLY']
+        if self.materials is None:
+            self.materials = ['XLB', 'GLD', 'SLV', 'PPLT']
+        if self.utilities is None:
+            self.utilities = ['XLU']
+        if self.healthcare is None:
+            self.healthcare = ['XLV', 'IHI']
 
 class EnhancedPairSelector:
-    """Enhanced pair selector with statistical rigor."""
+    """Enhanced pair selector with statistical rigor and risk management."""
     
     def __init__(self, config, statistical_thresholds: Optional[StatisticalThresholds] = None):
         """Initialize the enhanced pair selector."""
         self.config = config
         self.statistical_thresholds = statistical_thresholds or StatisticalThresholds()
+        self.sector_mapping = SectorMapping()
         self.logger = logging.getLogger(__name__)
         
+        # Risk management settings
+        self.max_volatility_spread = getattr(self.statistical_thresholds, 'max_volatility_spread', 2.0)
+        self.max_sector_pairs = getattr(self.statistical_thresholds, 'max_sector_pairs', 3)
+        self.min_sector_diversification = getattr(self.statistical_thresholds, 'min_sector_diversification', 3)
+        
+    def get_asset_sector(self, asset: str) -> str:
+        """Get the sector for a given asset."""
+        for sector, assets in self.sector_mapping.__dict__.items():
+            if assets and asset in assets:
+                return sector
+        return 'other'
+    
+    def calculate_sector_diversification(self, pairs: List[Tuple[str, str]]) -> Dict[str, int]:
+        """Calculate sector distribution for selected pairs."""
+        sector_counts = defaultdict(int)
+        for pair in pairs:
+            sector1 = self.get_asset_sector(pair[0])
+            sector2 = self.get_asset_sector(pair[1])
+            sector_counts[sector1] += 1
+            sector_counts[sector2] += 1
+        return dict(sector_counts)
+    
+    def check_volatility_spread_risk(self, vol1: float, vol2: float, vol_spread: float) -> bool:
+        """Check if volatility spread is within acceptable limits."""
+        # Calculate volatility spread ratio
+        if vol2 > 0:
+            vol_ratio = vol1 / vol2
+        else:
+            vol_ratio = float('inf')
+        
+        # Check if spread volatility is excessive
+        spread_risk = vol_spread > (max(vol1, vol2) * self.max_volatility_spread)
+        
+        # Check if individual asset volatility ratio is excessive
+        ratio_risk = vol_ratio > self.max_volatility_spread or vol_ratio < (1 / self.max_volatility_spread)
+        
+        return not (spread_risk or ratio_risk)
+    
     def calculate_hurst_exponent(self, series: pd.Series) -> float:
         """Calculate Hurst exponent to test for mean reversion."""
         try:
@@ -201,7 +274,8 @@ class EnhancedPairSelector:
                 coint_results['r_squared'] >= self.statistical_thresholds.r_squared_min and
                 abs(coint_results['correlation']) >= self.statistical_thresholds.correlation_min and
                 coint_results['hurst_exponent'] <= self.statistical_thresholds.hurst_threshold and
-                coint_results['observations'] >= self.statistical_thresholds.min_observations
+                coint_results['observations'] >= self.statistical_thresholds.min_observations and
+                self.check_volatility_spread_risk(vol1, vol2, vol_spread)
             )
             
             return {
@@ -258,7 +332,7 @@ class EnhancedPairSelector:
             return 0.0
     
     def select_pairs_enhanced(self, pair_metrics: Dict) -> List[Tuple[str, str]]:
-        """Select pairs based on enhanced statistical criteria."""
+        """Select pairs based on enhanced statistical criteria with risk management."""
         try:
             # Filter pairs that meet criteria
             qualified_pairs = []
@@ -270,15 +344,18 @@ class EnhancedPairSelector:
             # Sort by statistical score
             qualified_pairs.sort(key=lambda x: x[1]['statistical_score'], reverse=True)
             
-            # Select top pairs
-            max_pairs = getattr(self.config, 'max_pairs', 10)
-            selected_pairs = [pair for pair, _ in qualified_pairs[:max_pairs]]
+            # Apply sector diversification
+            selected_pairs = self._apply_sector_diversification(qualified_pairs)
             
             # Log selection results
             self.logger.info(f"Enhanced pair selection results:")
             self.logger.info(f"Total pairs analyzed: {len(pair_metrics)}")
             self.logger.info(f"Pairs meeting criteria: {len(qualified_pairs)}")
-            self.logger.info(f"Pairs selected: {len(selected_pairs)}")
+            self.logger.info(f"Pairs selected after diversification: {len(selected_pairs)}")
+            
+            # Log sector distribution
+            sector_dist = self.calculate_sector_diversification(selected_pairs)
+            self.logger.info(f"Sector distribution: {sector_dist}")
             
             # Log detailed statistics for selected pairs
             for i, (pair, metrics) in enumerate(qualified_pairs[:len(selected_pairs)]):
@@ -288,12 +365,46 @@ class EnhancedPairSelector:
                 self.logger.info(f"  R-squared: {metrics['r_squared']:.3f}")
                 self.logger.info(f"  Correlation: {metrics['correlation']:.3f}")
                 self.logger.info(f"  Hurst Exponent: {metrics['hurst_exponent']:.3f}")
+                self.logger.info(f"  Volatility Spread: {metrics['volatility_spread']:.2%}")
+                self.logger.info(f"  Sectors: {self.get_asset_sector(pair[0])}-{self.get_asset_sector(pair[1])}")
             
             return selected_pairs
             
         except Exception as e:
             self.logger.error(f"Error in enhanced pair selection: {e}")
             return []
+    
+    def _apply_sector_diversification(self, qualified_pairs: List[Tuple[Tuple[str, str], Dict]]) -> List[Tuple[str, str]]:
+        """Apply sector diversification to selected pairs."""
+        selected_pairs = []
+        sector_counts = defaultdict(int)
+        
+        for pair, metrics in qualified_pairs:
+            sector1 = self.get_asset_sector(pair[0])
+            sector2 = self.get_asset_sector(pair[1])
+            
+            # Check if adding this pair would exceed sector limits
+            if (sector_counts[sector1] < self.max_sector_pairs and 
+                sector_counts[sector2] < self.max_sector_pairs):
+                
+                selected_pairs.append(pair)
+                sector_counts[sector1] += 1
+                sector_counts[sector2] += 1
+                
+                # Stop if we have enough pairs
+                if len(selected_pairs) >= getattr(self.config, 'max_pairs', 10):
+                    break
+        
+        # Ensure minimum sector diversification
+        unique_sectors = set()
+        for pair in selected_pairs:
+            unique_sectors.add(self.get_asset_sector(pair[0]))
+            unique_sectors.add(self.get_asset_sector(pair[1]))
+        
+        if len(unique_sectors) < self.min_sector_diversification:
+            self.logger.warning(f"Only {len(unique_sectors)} sectors represented, minimum is {self.min_sector_diversification}")
+        
+        return selected_pairs
     
     def generate_statistical_report(self, pair_metrics: Dict) -> str:
         """Generate comprehensive statistical report."""

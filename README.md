@@ -1,180 +1,320 @@
-Mean Reversion Pairs Trading Engine
-A quantitative trading engine that implements a pairs trading strategy using mean reversion principles, Kalman filtering, and regime detection.
+# Mean Reversion Pairs Trading Engine
 
-Features
-ETF data fetching and preprocessing
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-Cointegration analysis for pair selection
+A sophisticated quantitative trading engine implementing advanced pairs trading strategies using mean reversion principles, statistical arbitrage, and machine learning techniques.
 
-Kalman filter for dynamic spread modeling
+## 🚀 Features
 
-Composite scoring of pairs using cointegration, ADF, Hurst and Z-score volatility
+### Core Trading Engine
+- **Advanced Pair Selection**: Multi-factor statistical analysis including cointegration, ADF tests, and Hurst exponent calculations
+- **Dynamic Spread Modeling**: Kalman filtering for adaptive hedge ratios and spread estimation
+- **Regime Detection**: Hidden Markov Models (HMM) for market regime identification and adaptive strategy parameters
+- **Risk Management**: Volatility targeting, position sizing, and comprehensive risk controls
 
-Hidden Markov Model for regime detection
+### Backtesting & Analysis
+- **VectorBT Integration**: High-performance vectorized backtesting with detailed trade analysis
+- **Performance Metrics**: Comprehensive risk-adjusted returns, drawdown analysis, and statistical validation
+- **Walk-Forward Analysis**: Out-of-sample validation and strategy robustness testing
+- **Parameter Optimization**: Grid search and optimization for strategy parameters
 
-Backtesting engine with:
+### Data & Infrastructure
+- **Multi-Source Data**: Support for yfinance, Alpaca, and custom data sources
+- **Real-time Processing**: Efficient data handling and caching mechanisms
+- **Visualization Suite**: Professional-grade charts and analysis plots
+- **Modular Architecture**: Clean, maintainable codebase with comprehensive testing
 
-Position sizing based on volatility targeting
+## 📊 Performance Highlights
 
-Stop-loss and take-profit management
+- **Signal Generation**: Advanced z-score based entry/exit signals with regime adaptation
+- **Risk-Adjusted Returns**: Sophisticated performance metrics including Sharpe, Sortino, and Calmar ratios
+- **Portfolio Management**: Multi-pair portfolio construction with sector diversification
+- **Statistical Rigor**: Institutional-grade statistical testing and validation
 
-Transaction cost modeling
+## 🛠 Installation
 
-Performance metrics calculation
+### Prerequisites
+- Python 3.8 or higher
+- Git
+- Virtual environment (recommended)
 
-Visualization tools for:
+### Quick Start
 
-Equity curves and drawdowns
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/meanr_engine.git
+   cd meanr_engine
+   ```
 
-Monthly returns heatmaps
+2. **Create and activate virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+   ```
 
-Trade distributions
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Regime-specific performance
+### Core Dependencies
+- `pandas` - Data manipulation and analysis
+- `numpy` - Numerical computing
+- `scipy` - Scientific computing
+- `statsmodels` - Statistical modeling
+- `hmmlearn` - Hidden Markov Models
+- `vectorbt` - Vectorized backtesting
+- `yfinance` - Market data fetching
+- `matplotlib` & `seaborn` - Visualization
 
-Performance metrics
+## 🚀 Usage
 
-Installation
-Clone the repository:
+### Basic Usage
 
-bash
-Copy
-Edit
-git clone https://github.com/yourusername/meanr_engine.git
-cd meanr_engine
-Create and activate a virtual environment:
+Run the enhanced trading engine with default configuration:
 
-bash
-Copy
-Edit
-python -m venv venv
-source venv/bin/activate  # On Windows: .\venv\Scripts\activate
-Install dependencies:
+```bash
+python run_engine_enhanced.py --config config_optimized.yaml --vectorbt-only --save-plots
+```
 
-bash
-Copy
-Edit
-pip install -r requirements.txt
-The list includes core packages such as hmmlearn and pykalman which are required for regime detection and Kalman filtering.
+### Advanced Usage
 
-Usage
-Run the main engine:
+**Parameter Optimization Mode:**
+```bash
+python run_engine_enhanced.py --config config_optimized.yaml --optimize --vectorbt-only
+```
 
-bash
-Copy
-Edit
-python run_engine.py --config config.yaml
-Optional flags include:
+**Walk-Forward Analysis:**
+```bash
+python run_engine_enhanced.py --config config_optimized.yaml --walkforward --walkforward-windows 10
+```
 
---config PATH - path to the configuration file (defaults to config.yaml)
+**Statistical Analysis Report:**
+```bash
+python run_engine_enhanced.py --config config_optimized.yaml --statistical-report
+```
 
-Parameter Grid Search
-To evaluate different threshold combinations, run the grid search mode:
+### Configuration Options
 
-bash
-Copy
-Edit
-python run_engine.py --mode grid-search \
-    --entry-thresholds 1.5,2.0 \
-    --exit-thresholds 0.1 \
-    --stop-loss-ks 2.0
-Ranges may also be specified in the grid_search section of config.yaml. Results are printed and saved to grid_search_results.csv.
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--config` | Configuration file path | `config.yaml` |
+| `--vectorbt-only` | Use only VectorBT backtesting | False |
+| `--save-plots` | Generate and save analysis plots | False |
+| `--optimize` | Run parameter optimization | False |
+| `--walkforward` | Enable walk-forward analysis | False |
+| `--statistical-report` | Generate statistical analysis report | False |
 
-Running the engine will:
+## 📈 Strategy Overview
 
-Fetch ETF data
+### Mean Reversion Pairs Trading
 
-Detect market regimes
+The engine implements a sophisticated pairs trading strategy based on mean reversion principles:
 
-Generate trading signals
+1. **Pair Selection**: Statistical analysis identifies cointegrated asset pairs
+2. **Signal Generation**: Z-score based entry/exit signals with adaptive thresholds
+3. **Risk Management**: Position sizing, stop-losses, and portfolio-level risk controls
+4. **Regime Adaptation**: Strategy parameters adapt to market conditions
 
-Run the backtest
+### Key Components
 
-Generate performance reports and visualizations
+#### Pair Selection Algorithm
+- **Cointegration Testing**: Engle-Granger test for long-term relationships
+- **Stationarity Analysis**: ADF test for mean reversion properties
+- **Hurst Exponent**: Measures trend vs. mean reversion characteristics
+- **Correlation Analysis**: Ensures sufficient short-term correlation
+- **Sector Diversification**: Portfolio-level risk management
 
-Project Structure
-kotlin
-Copy
-Edit
+#### Signal Generation
+- **Z-Score Calculation**: Rolling mean and standard deviation based signals
+- **Adaptive Thresholds**: Dynamic entry/exit levels based on market conditions
+- **Regime Scaling**: Signal strength adjusted for market volatility regimes
+- **Multi-Timeframe**: Combines short and long-term signals
+
+#### Risk Management
+- **Volatility Targeting**: Position sizing based on portfolio volatility
+- **Stop-Loss Management**: Dynamic stop-loss levels based on spread volatility
+- **Sector Limits**: Maximum exposure per sector
+- **Correlation Limits**: Maximum correlation between pairs
+
+## 📁 Project Structure
+
+```
 meanr_engine/
-├── backtest/
-│   ├── __init__.py
-│   ├── backtest.py
-│   └── visualization.py
-├── data/
-│   └── fetch_data.py
-├── core/
-│   └── pair_analysis.py
-├── regime/
-│   └── regime_detection.py
-├── run_engine.py
-├── requirements.txt
-└── README.md
-Live Simulation with Alpaca
-alpaca_backtrader_sim.py runs the pairs strategy using Backtrader and Alpaca's paper trading API. Pass your Alpaca credentials and choose between backtest or live modes. Multiple pairs can be traded simultaneously by providing them via the --pairs option:
+├── core/                          # Core trading logic
+│   ├── pair_selection.py         # Pair selection algorithms
+│   ├── enhanced_pair_selection.py # Advanced pair selection
+│   ├── backtest_runner.py        # Backtesting engine
+│   ├── enhanced_metrics.py       # Performance metrics
+│   ├── config.py                 # Configuration management
+│   └── plotting.py               # Visualization utilities
+├── backtest/                     # Backtesting modules
+│   ├── backtest.py              # Traditional backtesting
+│   ├── vectorbt_backtest.py     # VectorBT integration
+│   └── visualization.py         # Backtest visualization
+├── regime/                       # Regime detection
+│   └── regime_detection.py      # HMM-based regime detection
+├── data/                         # Data handling
+│   ├── fetch_data.py            # Data fetching utilities
+│   └── data_loader.py           # Data loading and preprocessing
+├── optimization/                 # Optimization tools
+│   └── grid_search.py           # Parameter optimization
+├── tests/                        # Test suite
+│   ├── test_pair_selector.py    # Pair selection tests
+│   ├── test_metrics.py          # Metrics calculation tests
+│   └── test_backtest.py         # Backtesting tests
+├── plots/                        # Generated plots and analysis
+├── trade_logs/                   # Detailed trade logs
+├── config_optimized.yaml         # Optimized configuration
+├── run_engine_enhanced.py        # Main execution script
+└── requirements.txt              # Python dependencies
+```
 
-bash
-Copy
-Edit
-python alpaca_backtrader_sim.py --api_key YOUR_KEY --secret_key YOUR_SECRET \
-    --pairs VLO/XLE,COP/CVX,EFA/QQQ --mode backtest
-Backtest mode fetches historical data from Alpaca while live mode subscribes to daily bars for simulated execution.
+## ⚙️ Configuration
 
-Running Tests
-Before running the tests, ensure all dependencies are installed:
+### Key Configuration Parameters
 
-bash
-Copy
-Edit
-pip install -r requirements.txt
-The requirements.txt file includes pytest>=8.0, which provides the test runner used by the scripts/run_tests.sh helper.
+```yaml
+# Signal Generation
+signals:
+  entry_threshold: 1.4          # Z-score entry threshold
+  exit_threshold: 0.5           # Z-score exit threshold
+  lookback: 20                  # Rolling window for z-score calculation
 
-Running pytest or the helper script without these packages (e.g. hmmlearn, pykalman) will result in import errors.
+# Risk Management
+backtest:
+  initial_capital: 1000000      # Starting capital
+  max_concurrent_positions: 5   # Maximum simultaneous positions
+  stop_loss_k: 2.0             # Stop-loss multiplier
 
-Then execute the bundled test runner from the repository root:
+# Statistical Thresholds
+statistical:
+  adf_pvalue_max: 0.10         # Maximum ADF p-value
+  coint_pvalue_max: 0.10       # Maximum cointegration p-value
+  correlation_min: 0.6         # Minimum correlation
+```
 
-bash
-Copy
-Edit
-./scripts/run_tests.sh
-This script adds the project root to PYTHONPATH before invoking pytest.
+### Configuration Files
 
-Configuration
-All parameters are stored in config.yaml, which is read at runtime by config.load_config(). Edit this file to tweak tickers, thresholds and other settings.
+- `config.yaml` - Default configuration
+- `config_optimized.yaml` - Optimized parameters for production
+- `config_relaxed.yaml` - Relaxed thresholds for more signals
+- `config_enhanced.yaml` - Enhanced features configuration
 
-CROSSVAL_TRAIN_DAYS and CROSSVAL_TEST_DAYS control the size of the rolling training and testing windows used in run_engine.py. The engine trains models on the most recent CROSSVAL_TRAIN_DAYS of data, evaluates on the following CROSSVAL_TEST_DAYS, then advances the window by the test period length to create the next fold.
+## 📊 Performance Metrics
 
-Example snippet:
+The engine calculates comprehensive performance metrics:
 
-yaml
-Copy
-Edit
-ETF_TICKERS:
-  - XOM
-  - CVX
-CROSSVAL_TRAIN_DAYS: 252  # one year of training
-CROSSVAL_TEST_DAYS: 63    # three months of testing
-PAIR_PARAMS:
-  XOM_CVX:
-    entry_threshold: 1.8
-    exit_threshold: 0.6
-Pair Scoring
-Pairs are ranked using four metrics:
+### Return Metrics
+- **Total Return**: Cumulative strategy performance
+- **Annualized Return**: Year-over-year performance
+- **Sharpe Ratio**: Risk-adjusted returns
+- **Sortino Ratio**: Downside risk-adjusted returns
+- **Calmar Ratio**: Maximum drawdown-adjusted returns
 
-Rolling cointegration p-value
+### Risk Metrics
+- **Maximum Drawdown**: Largest peak-to-trough decline
+- **Value at Risk (VaR)**: 95% and 99% confidence levels
+- **Conditional VaR**: Expected loss beyond VaR
+- **Volatility**: Annualized standard deviation
+- **Downside Risk**: Negative return volatility
 
-Rolling Hurst exponent
+### Trade Statistics
+- **Win Rate**: Percentage of profitable trades
+- **Profit Factor**: Ratio of gross profits to gross losses
+- **Average Win/Loss**: Mean profit and loss per trade
+- **Maximum Consecutive Wins/Losses**: Streak analysis
+- **Recovery Time**: Time to recover from drawdowns
 
-Rolling ADF test p-value
+## 🧪 Testing
 
-Z-score volatility
+### Running Tests
 
-Each metric is min-max normalized across all candidate pairs. The final score is 1 - mean(normalized metrics) so that lower p-values or lower Hurst values (indicating stronger mean reversion) lead to higher scores. The TOP_N_PAIRS parameter defines how many of the highest scoring pairs are kept for signal generation and backtesting. Increase this value in config.yaml to consider more pairs or reduce it to focus on fewer.
+```bash
+# Run all tests
+pytest
 
-These relaxed statistical metrics are now used for scoring rather than strict threshold-based filtering, allowing borderline pairs to be considered while still prioritizing the strongest candidates.
+# Run specific test modules
+pytest tests/test_pair_selector.py
+pytest tests/test_metrics.py
 
-License
-This project is licensed under the MIT License.
+# Run with coverage
+pytest --cov=core --cov=backtest --cov=regime
+```
 
-Contributing
-Contributions are welcome! Please feel free to submit a Pull Request.
+### Test Coverage
+
+- **Unit Tests**: Individual component testing
+- **Integration Tests**: End-to-end workflow testing
+- **Performance Tests**: Backtesting accuracy validation
+- **Statistical Tests**: Strategy robustness validation
+
+## 📈 Live Trading
+
+### Alpaca Integration
+
+For live trading with Alpaca's paper trading:
+
+```bash
+python alpaca_backtrader_sim.py \
+    --api_key YOUR_API_KEY \
+    --secret_key YOUR_SECRET_KEY \
+    --pairs XOM/CVX,SPY/QQQ \
+    --mode paper
+```
+
+### Risk Warnings
+
+⚠️ **Important**: This software is for educational and research purposes. Live trading involves substantial risk of loss. Always:
+- Test thoroughly in paper trading mode
+- Start with small position sizes
+- Monitor performance closely
+- Understand all risks involved
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these guidelines:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Development Setup
+
+```bash
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run linting
+black .
+flake8 .
+
+# Run tests
+pytest
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 📞 Support
+
+- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/yourusername/meanr_engine/issues)
+- **Discussions**: Join community discussions in [GitHub Discussions](https://github.com/yourusername/meanr_engine/discussions)
+- **Documentation**: Check the [Wiki](https://github.com/yourusername/meanr_engine/wiki) for detailed guides
+
+## 🙏 Acknowledgments
+
+- **VectorBT**: High-performance backtesting framework
+- **Statsmodels**: Statistical modeling and testing
+- **Pandas**: Data manipulation and analysis
+- **YFinance**: Market data access
+- **Alpaca**: Trading API and infrastructure
+
+---
+
+**Disclaimer**: This software is for educational purposes only. Trading involves substantial risk of loss and is not suitable for all investors. Past performance does not guarantee future results.

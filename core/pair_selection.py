@@ -79,8 +79,8 @@ class PairSelector:
     def _calculate_kalman_params(self, pair_data: pd.DataFrame, pair_key: str = "") -> Dict:
         """Calculate Kalman filter parameters."""
         try:
-            cache_file = os.path.join(self.config.data_dir, f"kalman_{pair_key}.pkl")
-            if self.config.use_cache and os.path.exists(cache_file) and not self.config.force_refresh:
+            cache_file = os.path.join(self.config.get('data_dir', 'data'), f"kalman_{pair_key}.pkl")
+            if self.config.get('use_cache', False) and os.path.exists(cache_file) and not self.config.get('force_refresh', False):
                 return load_from_cache(cache_file)
 
             # Initialize Kalman filter
@@ -109,7 +109,7 @@ class PairSelector:
                 'observation_matrix': kf.observation_matrices
             }
 
-            if self.config.use_cache:
+            if self.config.get('use_cache', False):
                 save_to_cache(result, cache_file)
 
             return result
@@ -137,7 +137,7 @@ class PairSelector:
     def _calculate_stability_metrics(self, spread: pd.Series) -> float:
         """Calculate stability metrics for the spread."""
         try:
-            if spread is None or len(spread) < self.config.pair_selection.stability_lookback:
+            if spread is None or len(spread) < self.config.get('pair_selection', {}).get('stability_lookback', 90):
                 return 0.0
                 
             # Calculate rolling metrics
@@ -159,13 +159,13 @@ class PairSelector:
             if spread is None:
                 return None
 
-            cache_file = os.path.join(self.config.data_dir, f"zscore_{pair_key}.pkl")
-            if self.config.use_cache and os.path.exists(cache_file) and not self.config.force_refresh:
+            cache_file = os.path.join(self.config.get('data_dir', 'data'), f"zscore_{pair_key}.pkl")
+            if self.config.get('use_cache', False) and os.path.exists(cache_file) and not self.config.get('force_refresh', False):
                 return load_from_cache(cache_file)
 
             z = (spread - spread.mean()) / spread.std()
 
-            if self.config.use_cache:
+            if self.config.get('use_cache', False):
                 save_to_cache(z, cache_file)
 
             return z
@@ -182,13 +182,18 @@ class PairSelector:
             norm_correlation = max(0, correlation)
             norm_coint = 1 - coint_pvalue
             norm_stability = max(0, stability)
-            norm_vol = 1 - min(1, zscore_vol / self.config.pair_selection.max_zscore_volatility)
+            norm_vol = 1 - min(1, zscore_vol / self.config.get('pair_selection', {}).get('max_zscore_volatility', 1.0))
             
-            weights = getattr(self.config.pair_scoring, 'weights', {})
-            corr_w = weights.get('correlation', 0.25)
-            coint_w = weights.get('coint_p', 0.25)
-            hurst_w = weights.get('hurst', 0.25)
-            vol_w = weights.get('zscore_vol', 0.25)
+            weights = self.config.get('pair_scoring', {}).get('weights', {
+                'correlation': 0.25,
+                'coint_p': 0.25,
+                'hurst': 0.25,
+                'zscore_vol': 0.25,
+            })
+            corr_w = weights['correlation']
+            coint_w = weights['coint_p']
+            hurst_w = weights['hurst']
+            vol_w = weights['zscore_vol']
 
             score = (
                 corr_w * norm_correlation +
@@ -273,9 +278,11 @@ class PairSelector:
             spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
             z_score = (spread - spread.rolling(20).mean()) / spread.rolling(20).std()
             
-            # Get thresholds from config or use defaults
-            entry_threshold = getattr(self.config, 'zscore_entry_threshold', 1.5)
-            exit_threshold = getattr(self.config, 'zscore_exit_threshold', 0.5)
+            # Get thresholds from config with fallbacks
+            entry_threshold = self.config.get('signals', {}).get('entry_threshold', 
+                                    self.config.get('backtest', {}).get('zscore_entry_threshold', 1.5))
+            exit_threshold = self.config.get('signals', {}).get('exit_threshold', 
+                                   self.config.get('backtest', {}).get('zscore_exit_threshold', 0.5))
             
             # Generate signals
             signals = pd.DataFrame(index=pair_data.index)
@@ -284,14 +291,38 @@ class PairSelector:
             signals['entry_short'] = z_score > entry_threshold   # Short when spread is high
             signals['exit'] = (z_score >= -exit_threshold) & (z_score <= exit_threshold)  # Exit when mean-reverting
             
-            # Debug: Log signal statistics
+            # Enhanced debug logging
             long_signals = signals['entry_long'].sum()
             short_signals = signals['entry_short'].sum()
             exit_signals = signals['exit'].sum()
+            total_signals = long_signals + short_signals
             
-            self.logger.debug(f"Generated signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
-            self.logger.debug(f"Z-score range: {z_score.min():.2f} to {z_score.max():.2f}")
-            self.logger.debug(f"Using thresholds - Entry: {entry_threshold}, Exit: {exit_threshold}")
+            # Log detailed statistics
+            self.logger.info(f"=== SIGNAL GENERATION DEBUG ===")
+            self.logger.info(f"Pair: {pair_data.columns[0]}-{pair_data.columns[1]}")
+            self.logger.info(f"Data points: {len(pair_data)}")
+            self.logger.info(f"Z-score range: {z_score.min():.3f} to {z_score.max():.3f}")
+            self.logger.info(f"Z-score mean: {z_score.mean():.3f}, std: {z_score.std():.3f}")
+            self.logger.info(f"Thresholds - Entry: {entry_threshold}, Exit: {exit_threshold}")
+            self.logger.info(f"Signals generated - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
+            self.logger.info(f"Total entry signals: {total_signals}")
+            
+            # Log recent z-score values for debugging
+            recent_zscore = z_score.tail(10)
+            self.logger.info(f"Recent z-scores: {recent_zscore.values}")
+            
+            # Check if we have any extreme z-scores
+            extreme_positive = (z_score > entry_threshold).sum()
+            extreme_negative = (z_score < -entry_threshold).sum()
+            self.logger.info(f"Extreme z-scores > {entry_threshold}: {extreme_positive}")
+            self.logger.info(f"Extreme z-scores < -{entry_threshold}: {extreme_negative}")
+            
+            if total_signals == 0:
+                self.logger.warning(f"No entry signals generated! Consider lowering entry threshold.")
+                # Log some sample z-score values around the threshold
+                near_threshold = z_score[abs(z_score) >= entry_threshold * 0.8]
+                if len(near_threshold) > 0:
+                    self.logger.info(f"Z-scores near threshold: {near_threshold.head(5).values}")
             
             return signals
             

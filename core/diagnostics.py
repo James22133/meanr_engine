@@ -33,13 +33,18 @@ class TradeDiagnostics:
             if trades_df.empty:
                 self.logger.warning("No trades to analyze")
                 return {}
+            
+            # Check if PnL column exists
+            if 'pnl' not in trades_df.columns:
+                self.logger.error("PnL column not found in trade data")
+                return {}
                 
             # Calculate basic statistics
             total_trades = len(trades_df)
             winning_trades = len(trades_df[trades_df['pnl'] > 0])
             losing_trades = len(trades_df[trades_df['pnl'] < 0])
             
-            # Calculate PnL statistics
+            # Calculate PnL statistics with safe handling
             total_pnl = trades_df['pnl'].sum()
             avg_pnl = trades_df['pnl'].mean()
             median_pnl = trades_df['pnl'].median()
@@ -237,6 +242,11 @@ class TradeDiagnostics:
                 self.logger.warning("No trades to plot")
                 return
             
+            # Check if PnL column exists
+            if 'pnl' not in trades_df.columns:
+                self.logger.error("PnL column not found in trade data for histogram")
+                return
+            
             # Create plots directory
             os.makedirs(save_path, exist_ok=True)
             
@@ -308,6 +318,11 @@ class TradeDiagnostics:
                 self.logger.warning("No trades to analyze")
                 return
             
+            # Check if PnL column exists
+            if 'pnl' not in trades_df.columns:
+                self.logger.error("PnL column not found in trade data for worst trades analysis")
+                return
+            
             # Get worst trades
             worst_trades = trades_df.nsmallest(top_n, 'pnl')
             
@@ -316,8 +331,8 @@ class TradeDiagnostics:
             self.logger.info(f"{'='*80}")
             
             for idx, trade in worst_trades.iterrows():
-                self.logger.info(f"Trade {idx}: {trade['pair']} | PnL: ${trade['pnl']:.2f} | "
-                               f"Entry: {trade['entry_date']} | Exit: {trade['exit_date']}")
+                self.logger.info(f"Trade {idx}: {trade.get('pair', 'Unknown')} | PnL: ${trade['pnl']:.2f} | "
+                               f"Entry: {trade.get('entry_date', 'Unknown')} | Exit: {trade.get('exit_date', 'Unknown')}")
                 if 'holding_period' in trade:
                     self.logger.info(f"  Holding Period: {trade['holding_period']} days")
                 if 'regime' in trade:
@@ -665,6 +680,11 @@ class TradeDiagnostics:
     def get_loss_decomposition(self, trades_df: pd.DataFrame) -> Dict:
         """Get loss decomposition."""
         try:
+            # Check if PnL column exists
+            if 'pnl' not in trades_df.columns:
+                self.logger.error("PnL column not found in trade data for loss decomposition")
+                return {}
+            
             # Filter losing trades
             losing_trades = trades_df[trades_df['pnl'] < 0].copy()
             
@@ -674,9 +694,11 @@ class TradeDiagnostics:
             # Calculate total loss
             total_loss = losing_trades['pnl'].sum()
             
-            # Loss by pair
-            loss_by_pair = losing_trades.groupby('pair')['pnl'].agg(['sum', 'count', 'mean']).round(2)
-            loss_by_pair['contribution_pct'] = (loss_by_pair['sum'] / total_loss * 100).round(2)
+            # Loss by pair (if pair column exists)
+            loss_by_pair = pd.DataFrame()
+            if 'pair' in losing_trades.columns:
+                loss_by_pair = losing_trades.groupby('pair')['pnl'].agg(['sum', 'count', 'mean']).round(2)
+                loss_by_pair['contribution_pct'] = (loss_by_pair['sum'] / total_loss * 100).round(2)
             
             # Loss by regime (if available)
             loss_by_regime = {}
@@ -685,6 +707,7 @@ class TradeDiagnostics:
                 loss_by_regime['contribution_pct'] = (loss_by_regime['sum'] / total_loss * 100).round(2)
             
             # Loss by holding period buckets
+            loss_by_holding = pd.DataFrame()
             if 'holding_period' in losing_trades.columns:
                 losing_trades['holding_bucket'] = pd.cut(
                     losing_trades['holding_period'], 
@@ -693,8 +716,6 @@ class TradeDiagnostics:
                 )
                 loss_by_holding = losing_trades.groupby('holding_bucket')['pnl'].agg(['sum', 'count', 'mean']).round(2)
                 loss_by_holding['contribution_pct'] = (loss_by_holding['sum'] / total_loss * 100).round(2)
-            else:
-                loss_by_holding = pd.DataFrame()
             
             return {
                 'total_loss': total_loss,

@@ -95,28 +95,28 @@ class VectorBTBacktest:
             spread = price1 - price2
             z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
             
-            # Generate entry signals
-            long_entry = z_score < -entry_threshold
-            short_entry = z_score > entry_threshold
-            
-            # Generate exit signals
-            long_exit = z_score > -exit_threshold
-            short_exit = z_score < exit_threshold
-            
-            # Combine signals
+            # Generate entry signals - vectorbt expects 1 for long, -1 for short, 0 for no position
             entries = pd.Series(0, index=price1.index)
-            entries[long_entry] = 1  # Long signal
-            entries[short_entry] = -1  # Short signal
+            entries[z_score < -entry_threshold] = 1   # Long when z-score is low (spread is low)
+            entries[z_score > entry_threshold] = -1   # Short when z-score is high (spread is high)
             
-            exits = pd.Series(0, index=price1.index)
-            exits[long_exit] = 1  # Exit long
-            exits[short_exit] = -1  # Exit short
+            # Generate exit signals - vectorbt expects True for exit, False for no exit
+            exits = pd.Series(False, index=price1.index)
+            exits[(z_score >= -exit_threshold) & (z_score <= exit_threshold)] = True
+            
+            # Debug logging
+            long_signals = (entries == 1).sum()
+            short_signals = (entries == -1).sum()
+            exit_signals = exits.sum()
+            
+            self.logger.info(f"VectorBT signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
+            self.logger.info(f"Z-score range: {z_score.min():.3f} to {z_score.max():.3f}")
             
             return entries, exits
             
         except Exception as e:
             self.logger.error(f"Error generating vectorized signals: {e}")
-            return pd.Series(0, index=price1.index), pd.Series(0, index=price1.index)
+            return pd.Series(0, index=price1.index), pd.Series(False, index=price1.index)
     
     def apply_regime_scaling(self, signals: pd.Series, regime_series: pd.Series) -> pd.Series:
         """Apply regime-based scaling to signals."""
@@ -150,7 +150,7 @@ class VectorBTBacktest:
     def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
                                regime_series: Optional[pd.Series] = None,
                                **signal_params) -> Dict:
-        """Run vectorized backtest using vectorbt."""
+        """Run vectorized backtest using vectorbt with detailed trade logging."""
         try:
             # Generate signals
             entries, exits = self.generate_signals_vectorized(price1, price2, **signal_params)
@@ -159,21 +159,43 @@ class VectorBTBacktest:
             if regime_series is not None:
                 entries = self.apply_regime_scaling(entries, regime_series)
             
-            # Create price DataFrame for vectorbt
-            prices = pd.DataFrame({
-                'asset1': price1,
-                'asset2': price2
-            })
+            # Create spread-based portfolio for pairs trading
+            # Calculate the spread (price1 - price2)
+            spread = price1 - price2
             
-            # Run vectorbt portfolio simulation
+            # Validate spread prices - ensure they are finite and positive
+            # For pairs trading, we can use the absolute value of the spread
+            # or add a constant to ensure positivity
+            spread_abs = spread.abs()
+            
+            # Check if we have valid prices
+            if not spread_abs.notna().all() or (spread_abs <= 0).any():
+                self.logger.warning(f"Invalid spread values detected. Using absolute values with offset.")
+                # Use absolute spread with a small offset to ensure positivity
+                spread_tradeable = spread_abs + 0.01
+            else:
+                spread_tradeable = spread_abs
+            
+            # Create a single-asset portfolio based on the spread
+            # This allows VectorBT to properly execute trades on the spread
             portfolio = vbt.Portfolio.from_signals(
-                prices,
-                entries,
-                exits,
+                spread_tradeable,  # Trade the absolute spread as a single asset
+                entries,  # Entry signals
+                exits,    # Exit signals
                 init_cash=self.config.initial_capital,
                 fees=self.config.fees,
                 slippage=self.config.slippage,
-                freq='1D'
+                freq='1D',
+                size=0.25,  # Trade 25% of capital per position (aggressive sizing)
+                accumulate=False,  # Don't accumulate positions
+                upon_long_conflict='ignore',  # Ignore conflicting signals
+                upon_short_conflict='ignore'
+            )
+            
+            # Extract detailed trade information
+            trade_records = portfolio.trades.records_readable
+            detailed_trades = self._extract_detailed_trades(
+                trade_records, price1, price2, entries, exits, regime_series
             )
             
             # Extract results
@@ -181,12 +203,18 @@ class VectorBTBacktest:
                 'portfolio': portfolio,
                 'equity_curve': portfolio.value(),
                 'returns': portfolio.returns(),
-                'trades': portfolio.trades.records_readable,
+                'trades': trade_records,
+                'detailed_trades': detailed_trades,
                 'signals': {
                     'entries': entries,
                     'exits': exits
                 },
-                'prices': prices
+                'prices': pd.DataFrame({
+                    'asset1': price1,
+                    'asset2': price2,
+                    'spread': spread,
+                    'spread_tradeable': spread_tradeable
+                })
             }
             
             return results
@@ -194,6 +222,174 @@ class VectorBTBacktest:
         except Exception as e:
             self.logger.error(f"Error running vectorized backtest: {e}")
             return {}
+    
+    def _extract_detailed_trades(self, trade_records: pd.DataFrame, 
+                                price1: pd.Series, price2: pd.Series,
+                                entries: pd.Series, exits: pd.Series,
+                                regime_series: Optional[pd.Series] = None) -> List[Dict]:
+        """Extract detailed trade information for analysis."""
+        try:
+            detailed_trades = []
+            
+            # Calculate spread and z-score for the entire period
+            spread = price1 - price2
+            lookback = 20  # Default lookback
+            z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
+            
+            # Check if we have any trades
+            if trade_records.empty:
+                self.logger.warning("No trades found in trade records")
+                return []
+            
+            # Debug: Print column names to understand the structure
+            self.logger.info(f"Trade records columns: {list(trade_records.columns)}")
+            
+            # Determine the correct column names for entry and exit times
+            # VectorBT uses 'Entry Timestamp' and 'Exit Timestamp' in newer versions
+            entry_time_col = None
+            exit_time_col = None
+            
+            possible_entry_cols = ['Entry Timestamp', 'entry_time', 'EntryTime', 'entry', 'Entry Time']
+            possible_exit_cols = ['Exit Timestamp', 'exit_time', 'ExitTime', 'exit', 'Exit Time']
+            
+            for col in possible_entry_cols:
+                if col in trade_records.columns:
+                    entry_time_col = col
+                    break
+                    
+            for col in possible_exit_cols:
+                if col in trade_records.columns:
+                    exit_time_col = col
+                    break
+            
+            if entry_time_col is None or exit_time_col is None:
+                self.logger.error(f"Could not find entry/exit time columns. Available: {list(trade_records.columns)}")
+                return []
+            
+            # Also check for PnL column
+            pnl_col = None
+            possible_pnl_cols = ['PnL', 'pnl', 'Pnl', 'PnL [%]', 'Return [%]', 'Return']
+            for col in possible_pnl_cols:
+                if col in trade_records.columns:
+                    pnl_col = col
+                    break
+            
+            if pnl_col is None:
+                self.logger.error(f"Could not find PnL column. Available: {list(trade_records.columns)}")
+                return []
+            
+            for _, trade in trade_records.iterrows():
+                try:
+                    entry_idx = trade[entry_time_col]
+                    exit_idx = trade[exit_time_col]
+                    
+                    # Get entry and exit information
+                    entry_price1 = price1.loc[entry_idx]
+                    entry_price2 = price2.loc[entry_idx]
+                    exit_price1 = price1.loc[exit_idx]
+                    exit_price2 = price2.loc[exit_idx]
+                    
+                    # Calculate z-scores
+                    entry_zscore = z_score.loc[entry_idx] if pd.notna(z_score.loc[entry_idx]) else 0
+                    exit_zscore = z_score.loc[exit_idx] if pd.notna(z_score.loc[exit_idx]) else 0
+                    
+                    # Get regime information
+                    entry_regime = regime_series.loc[entry_idx] if regime_series is not None else 0
+                    exit_regime = regime_series.loc[exit_idx] if regime_series is not None else 0
+                    
+                    # Calculate holding period
+                    holding_period = (exit_idx - entry_idx).days
+                    
+                    # Determine trade direction - check multiple possible column names
+                    direction = 'unknown'
+                    direction_col = None
+                    possible_direction_cols = ['Direction', 'direction', 'Side', 'side']
+                    for col in possible_direction_cols:
+                        if col in trade_records.columns:
+                            direction_col = col
+                            break
+                    
+                    if direction_col:
+                        if trade[direction_col] == 0 or trade[direction_col] == 'long':
+                            direction = 'long'
+                        elif trade[direction_col] == 1 or trade[direction_col] == 'short':
+                            direction = 'short'
+                    
+                    # Calculate spread metrics
+                    entry_spread = entry_price1 - entry_price2
+                    exit_spread = exit_price1 - exit_price2
+                    spread_change = exit_spread - entry_spread
+                    
+                    # Get PnL value with proper handling
+                    pnl_value = trade[pnl_col]
+                    if pd.isna(pnl_value):
+                        pnl_value = 0.0
+                    
+                    # Get other trade details with safe defaults
+                    size = trade.get('Size', 1.0)
+                    fees = trade.get('Entry Fees', 0.0) + trade.get('Exit Fees', 0.0)
+                    slippage = trade.get('Slippage', 0.0)
+                    
+                    detailed_trade = {
+                        'entry_date': entry_idx,
+                        'exit_date': exit_idx,
+                        'direction': direction,
+                        'entry_price1': entry_price1,
+                        'entry_price2': entry_price2,
+                        'exit_price1': exit_price1,
+                        'exit_price2': exit_price2,
+                        'entry_spread': entry_spread,
+                        'exit_spread': exit_spread,
+                        'spread_change': spread_change,
+                        'entry_zscore': entry_zscore,
+                        'exit_zscore': exit_zscore,
+                        'entry_regime': entry_regime,
+                        'exit_regime': exit_regime,
+                        'holding_period': holding_period,
+                        'pnl': pnl_value,
+                        'return_pct': trade.get('Return [%]', 0.0),
+                        'size': size,
+                        'fees': fees,
+                        'slippage': slippage
+                    }
+                    
+                    detailed_trades.append(detailed_trade)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error processing individual trade: {e}")
+                    continue
+            
+            self.logger.info(f"Successfully extracted {len(detailed_trades)} detailed trades")
+            return detailed_trades
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting detailed trades: {e}")
+            return []
+    
+    def save_trade_logs(self, results: Dict, pair_name: str, output_dir: str = "trade_logs") -> str:
+        """Save detailed trade logs to CSV file."""
+        try:
+            import os
+            os.makedirs(output_dir, exist_ok=True)
+            
+            if 'detailed_trades' in results and results['detailed_trades']:
+                trades_df = pd.DataFrame(results['detailed_trades'])
+                
+                # Create filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{output_dir}/{pair_name[0]}_{pair_name[1]}_trades_{timestamp}.csv"
+                
+                trades_df.to_csv(filename, index=False)
+                self.logger.info(f"Saved detailed trade logs to {filename}")
+                
+                return filename
+            else:
+                self.logger.warning("No detailed trades found to save")
+                return ""
+                
+        except Exception as e:
+            self.logger.error(f"Error saving trade logs: {e}")
+            return ""
     
     def calculate_enhanced_metrics(self, returns: pd.Series, 
                                  equity_curve: pd.Series) -> Dict:

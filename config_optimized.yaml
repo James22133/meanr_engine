@@ -37,20 +37,20 @@ data:
   use_cache: false
   force_refresh: false
 
-# Signal generation configuration
+# Signal generation configuration - OPTIMIZED FOR RETURNS
 signals:
-  lookback: 20
-  entry_threshold: 2.0
-  exit_threshold: 0.5
+  lookback: 25  # Optimized for better signal quality
+  entry_threshold: 1.6  # More aggressive entry for more trades
+  exit_threshold: 0.2  # Tighter exit for better profit capture
   hedge_ratio_method: 'ols'
   capital_allocation: 'equal'
   risk_model: 'none'
-  zscore_window: 20
-  entry_quantile: 0.9
-  exit_quantile: 0.5
+  zscore_window: 25
+  entry_quantile: 0.85  # Balanced for signal quality
+  exit_quantile: 0.3  # Tighter exit for better profit capture
   allow_all_regimes: true
   use_adaptive_thresholds: true
-  zscore_quantile_window: 60
+  zscore_quantile_window: 50
 
 # Regime detection configuration
 regime:
@@ -60,22 +60,22 @@ regime:
   regime_entry_only: true
   allowed_entry_regimes: [0, 1]
 
-# Backtest configuration
+# Backtest configuration - AGGRESSIVE POSITION SIZING
 backtest:
   initial_capital: 1000000
-  target_volatility: 0.15
+  target_volatility: 0.20  # Increased for higher returns
   slippage_bps: 5.0
   commission_bps: 10.0
-  stop_loss_k: 2.0
-  zscore_entry_threshold: 1.5
-  zscore_exit_threshold: 0.5
-  max_hold_days: 15
-  target_profit_pct: 0.05
+  stop_loss_k: 2.5  # Increased for more room
+  zscore_entry_threshold: 1.6  # Aligned with signals.entry_threshold
+  zscore_exit_threshold: 0.2   # Aligned with signals.exit_threshold
+  max_hold_days: 20  # Increased for longer mean reversion
+  target_profit_pct: 0.03  # Lower target for more frequent exits
   rebalance_freq: 21
-  max_concurrent_positions: 5
+  max_concurrent_positions: 6  # Increased for more diversification
   regime_scaling: true
-  regime_volatility_multiplier: 1.0
-  regime_trend_multiplier: 1.0
+  regime_volatility_multiplier: 1.2  # More aggressive in volatile regimes
+  regime_trend_multiplier: 1.1
 
 # Enhanced metrics configuration
 metrics:
@@ -92,6 +92,9 @@ statistical:
   correlation_min: 0.6  # Relaxed from 0.8
   hurst_threshold: 0.7  # Relaxed from 0.5 (allows more trending pairs)
   min_observations: 252
+  max_volatility_spread: 1.5  # Maximum volatility spread ratio (prevents EOG-VLO type pairs)
+  max_sector_pairs: 3  # Maximum pairs per sector
+  min_sector_diversification: 3  # Minimum number of sectors
 
 # Pair selection configuration
 pair_selection:
@@ -103,9 +106,9 @@ pair_selection:
   min_cointegration_stability: 0.3
   stability_lookback: 20
   min_data_points: 100
-  top_n_pairs: 10  # Increased from 5
+  top_n_pairs: 8  # Balanced for diversification
   sector_filter_enabled: false  # Disabled to allow more pairs
-  min_pair_sharpe: 0.5  # Relaxed from 0.8
+  min_pair_sharpe: 0.4  # Relaxed for more opportunities
 
 # Scoring weights for pair selection
 scoring_weights:

@@ -341,12 +341,18 @@ class EnhancedMetricsCalculator:
             
             # Pair-specific additional metrics
             if not pair_returns.empty:
-                # Mean reversion metrics
-                autocorr_1 = pair_returns.autocorr(lag=1)
-                autocorr_5 = pair_returns.autocorr(lag=5)
-                
-                # Volatility clustering
-                vol_clustering = pair_returns.rolling(20).std().autocorr(lag=1)
+                # Autocorrelation analysis
+                try:
+                    autocorr_1 = pair_returns.autocorr(lag=1) if len(pair_returns) > 1 else None
+                    autocorr_5 = pair_returns.autocorr(lag=5) if len(pair_returns) > 5 else None
+                    
+                    # Volatility clustering
+                    vol_clustering = pair_returns.rolling(20).std().autocorr(lag=1) if len(pair_returns) > 20 else None
+                except Exception as e:
+                    self.logger.warning(f"Error calculating autocorrelation: {e}")
+                    autocorr_1 = None
+                    autocorr_5 = None
+                    vol_clustering = None
                 
                 # Maximum consecutive wins/losses
                 consecutive_wins = self._max_consecutive_wins(pair_returns)
@@ -381,7 +387,13 @@ class EnhancedMetricsCalculator:
             current_consecutive = 0
             
             for win in wins:
-                if win:
+                # Handle both pandas Series and scalar boolean values
+                if hasattr(win, 'item'):
+                    win_bool = win.item()
+                else:
+                    win_bool = bool(win)
+                    
+                if win_bool:
                     current_consecutive += 1
                     max_consecutive = max(max_consecutive, current_consecutive)
                 else:
@@ -401,7 +413,13 @@ class EnhancedMetricsCalculator:
             current_consecutive = 0
             
             for loss in losses:
-                if loss:
+                # Handle both pandas Series and scalar boolean values
+                if hasattr(loss, 'item'):
+                    loss_bool = loss.item()
+                else:
+                    loss_bool = bool(loss)
+                    
+                if loss_bool:
                     current_consecutive += 1
                     max_consecutive = max(max_consecutive, current_consecutive)
                 else:
@@ -467,6 +485,23 @@ class EnhancedMetricsCalculator:
             if not metrics:
                 return "No metrics to report"
             
+            # Helper function to safely format values
+            def safe_format(value, format_str=".2%", default="N/A"):
+                """Safely format a value, handling None and NaN."""
+                if value is None or pd.isna(value):
+                    return default
+                try:
+                    if format_str == ".2%":
+                        return f"{value:.2%}"
+                    elif format_str == ".3f":
+                        return f"{value:.3f}"
+                    elif format_str == ".0f":
+                        return f"{value:.0f}"
+                    else:
+                        return str(value)
+                except (ValueError, TypeError):
+                    return default
+            
             report = f"""
 {'='*80}
 ENHANCED PERFORMANCE METRICS REPORT: {pair_name}
@@ -474,67 +509,67 @@ ENHANCED PERFORMANCE METRICS REPORT: {pair_name}
 
 BASIC PERFORMANCE METRICS:
 {'-'*40}
-Total Return: {metrics.get('total_return', 0):.2%}
-Annual Return: {metrics.get('annual_return', 0):.2%}
-Annual Volatility: {metrics.get('annual_volatility', 0):.2%}
+Total Return: {safe_format(metrics.get('total_return'), '.2%')}
+Annual Return: {safe_format(metrics.get('annual_return'), '.2%')}
+Annual Volatility: {safe_format(metrics.get('annual_volatility'), '.2%')}
 Observations: {metrics.get('observations', 0)}
 
 RISK-ADJUSTED RETURNS:
 {'-'*40}
-Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.3f}
-Sortino Ratio: {metrics.get('sortino_ratio', 0):.3f}
-Calmar Ratio: {metrics.get('calmar_ratio', 0):.3f}
-Information Ratio: {metrics.get('information_ratio', 0):.3f if metrics.get('information_ratio') else 'N/A'}
-Treynor Ratio: {metrics.get('treynor_ratio', 0):.3f if metrics.get('treynor_ratio') else 'N/A'}
+Sharpe Ratio: {safe_format(metrics.get('sharpe_ratio'), '.3f')}
+Sortino Ratio: {safe_format(metrics.get('sortino_ratio'), '.3f')}
+Calmar Ratio: {safe_format(metrics.get('calmar_ratio'), '.3f')}
+Information Ratio: {safe_format(metrics.get('information_ratio'), '.3f')}
+Treynor Ratio: {safe_format(metrics.get('treynor_ratio'), '.3f')}
 
 DRAWDOWN ANALYSIS:
 {'-'*40}
-Maximum Drawdown: {metrics.get('max_drawdown', 0):.2%}
-Average Drawdown: {metrics.get('avg_drawdown', 0):.2%}
+Maximum Drawdown: {safe_format(metrics.get('max_drawdown'), '.2%')}
+Average Drawdown: {safe_format(metrics.get('avg_drawdown'), '.2%')}
 Number of Drawdown Periods: {metrics.get('recovery_metrics', {}).get('num_drawdown_periods', 0)}
-Average Recovery Time: {metrics.get('recovery_metrics', {}).get('avg_recovery_time', 0):.0f} days
+Average Recovery Time: {safe_format(metrics.get('recovery_metrics', {}).get('avg_recovery_time'), '.0f')} days
 
 RISK METRICS:
 {'-'*40}
-Value at Risk (95%): {metrics.get('var_95', 0):.2%}
-Conditional VaR (95%): {metrics.get('cvar_95', 0):.2%}
-Value at Risk (99%): {metrics.get('var_99', 0):.2%}
-Conditional VaR (99%): {metrics.get('cvar_99', 0):.2%}
-Tail Ratio: {metrics.get('tail_ratio', 0):.3f}
-Downside Risk: {metrics.get('downside_risk', 0):.2%}
-Upside Risk: {metrics.get('upside_risk', 0):.2%}
+Value at Risk (95%): {safe_format(metrics.get('var_95'), '.2%')}
+Conditional VaR (95%): {safe_format(metrics.get('cvar_95'), '.2%')}
+Value at Risk (99%): {safe_format(metrics.get('var_99'), '.2%')}
+Conditional VaR (99%): {safe_format(metrics.get('cvar_99'), '.2%')}
+Tail Ratio: {safe_format(metrics.get('tail_ratio'), '.3f')}
+Downside Risk: {safe_format(metrics.get('downside_risk'), '.2%')}
+Upside Risk: {safe_format(metrics.get('upside_risk'), '.2%')}
 
 TRADE STATISTICS:
 {'-'*40}
-Win Rate: {metrics.get('win_rate', 0):.2%}
-Profit Factor: {metrics.get('profit_factor', 0):.3f}
-Average Win: {metrics.get('avg_win', 0):.2%}
-Average Loss: {metrics.get('avg_loss', 0):.2%}
+Win Rate: {safe_format(metrics.get('win_rate'), '.2%')}
+Profit Factor: {safe_format(metrics.get('profit_factor'), '.3f')}
+Average Win: {safe_format(metrics.get('avg_win'), '.2%')}
+Average Loss: {safe_format(metrics.get('avg_loss'), '.2%')}
 Max Consecutive Wins: {metrics.get('max_consecutive_wins', 0)}
 Max Consecutive Losses: {metrics.get('max_consecutive_losses', 0)}
 
 DISTRIBUTION METRICS:
 {'-'*40}
-Skewness: {metrics.get('skewness', 0):.3f}
-Kurtosis: {metrics.get('kurtosis', 0):.3f}
-Stability: {metrics.get('stability', 0):.3f}
+Skewness: {safe_format(metrics.get('skewness'), '.3f')}
+Kurtosis: {safe_format(metrics.get('kurtosis'), '.3f')}
+Stability: {safe_format(metrics.get('stability'), '.3f')}
 
 BENCHMARK METRICS:
 {'-'*40}
-Beta: {metrics.get('beta', 0):.3f if metrics.get('beta') else 'N/A'}
-Alpha: {metrics.get('alpha', 0):.2% if metrics.get('alpha') else 'N/A'}
+Beta: {safe_format(metrics.get('beta'), '.3f')}
+Alpha: {safe_format(metrics.get('alpha'), '.2%')}
 
 ROLLING METRICS:
 {'-'*40}
-Average Rolling Sharpe: {metrics.get('rolling_sharpe_mean', 0):.3f if metrics.get('rolling_sharpe_mean') else 'N/A'}
-Rolling Sharpe Std Dev: {metrics.get('rolling_sharpe_std', 0):.3f if metrics.get('rolling_sharpe_std') else 'N/A'}
-Average Rolling Volatility: {metrics.get('rolling_volatility_mean', 0):.2% if metrics.get('rolling_volatility_mean') else 'N/A'}
+Average Rolling Sharpe: {safe_format(metrics.get('rolling_sharpe_mean'), '.3f')}
+Rolling Sharpe Std Dev: {safe_format(metrics.get('rolling_sharpe_std'), '.3f')}
+Average Rolling Volatility: {safe_format(metrics.get('rolling_volatility_mean'), '.2%')}
 
 PAIR-SPECIFIC METRICS:
 {'-'*40}
-1-Day Autocorrelation: {metrics.get('autocorr_1', 0):.3f if metrics.get('autocorr_1') else 'N/A'}
-5-Day Autocorrelation: {metrics.get('autocorr_5', 0):.3f if metrics.get('autocorr_5') else 'N/A'}
-Volatility Clustering: {metrics.get('volatility_clustering', 0):.3f if metrics.get('volatility_clustering') else 'N/A'}
+1-Day Autocorrelation: {safe_format(metrics.get('autocorr_1'), '.3f')}
+5-Day Autocorrelation: {safe_format(metrics.get('autocorr_5'), '.3f')}
+Volatility Clustering: {safe_format(metrics.get('volatility_clustering'), '.3f')}
 
 {'='*80}
 """

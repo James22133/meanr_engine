@@ -6,15 +6,15 @@ ENHANCED STATISTICAL PAIR ANALYSIS REPORT
 SUMMARY STATISTICS:
 ----------------------------------------
 Total Pairs Analyzed: 406
-Pairs Meeting Criteria: 29
-Pairs Not Meeting Criteria: 377
+Pairs Meeting Criteria: 10
+Pairs Not Meeting Criteria: 396
 
 DETAILED PAIR ANALYSIS:
 ----------------------------------------
 
 Pair 1: VLO-XLE
   Statistical Score: 0.882
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0187
     ADF p-value: 0.1955
@@ -33,7 +33,7 @@ Pair 1: VLO-XLE
 
 Pair 2: VLO-XOM
   Statistical Score: 0.881
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0166
     ADF p-value: 0.0471
@@ -47,7 +47,7 @@ Pair 2: VLO-XOM
   Volatility:
     Asset 1: 43.81%
     Asset 2: 30.99%
-    Spread: 6285.27%
+    Spread: 6285.28%
   Observations: 1760
 
 Pair 3: COP-CVX
@@ -71,7 +71,7 @@ Pair 3: COP-CVX
 
 Pair 4: IEF-OXY
   Statistical Score: 0.875
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0000
     ADF p-value: 0.8667
@@ -147,7 +147,7 @@ Pair 7: BNO-EOG
 
 Pair 8: AGG-OXY
   Statistical Score: 0.843
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0021
     ADF p-value: 0.8041
@@ -166,7 +166,7 @@ Pair 8: AGG-OXY
 
 Pair 9: EOG-VLO
   Statistical Score: 0.843
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0630
     ADF p-value: 0.0778
@@ -180,7 +180,7 @@ Pair 9: EOG-VLO
   Volatility:
     Asset 1: 43.31%
     Asset 2: 43.81%
-    Spread: 17832.75%
+    Spread: 17695.19%
   Observations: 1760
 
 Pair 10: EFA-QQQ
@@ -204,7 +204,7 @@ Pair 10: EFA-QQQ
 
 Pair 11: IEF-SLB
   Statistical Score: 0.839
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0054
     ADF p-value: 0.7558
@@ -223,7 +223,7 @@ Pair 11: IEF-SLB
 
 Pair 12: COP-VLO
   Statistical Score: 0.837
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0925
     ADF p-value: 0.0904
@@ -237,12 +237,12 @@ Pair 12: COP-VLO
   Volatility:
     Asset 1: 40.33%
     Asset 2: 43.81%
-    Spread: 5506.77%
+    Spread: 5512.06%
   Observations: 1760
 
 Pair 13: OXY-TLT
   Statistical Score: 0.830
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0452
     ADF p-value: 0.7974
@@ -261,7 +261,7 @@ Pair 13: OXY-TLT
 
 Pair 14: EFA-XLK
   Statistical Score: 0.827
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0612
     ADF p-value: 0.5518
@@ -280,7 +280,7 @@ Pair 14: EFA-XLK
 
 Pair 15: EOG-TLT
   Statistical Score: 0.824
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0234
     ADF p-value: 0.7780
@@ -294,12 +294,12 @@ Pair 15: EOG-TLT
   Volatility:
     Asset 1: 43.31%
     Asset 2: 16.23%
-    Spread: 1593.97%
+    Spread: 1594.26%
   Observations: 1760
 
 Pair 16: EFA-SMH
   Statistical Score: 0.821
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0827
     ADF p-value: 0.8080
@@ -318,7 +318,7 @@ Pair 16: EFA-SMH
 
 Pair 17: SLB-TLT
   Statistical Score: 0.817
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0111
     ADF p-value: 0.7016
@@ -337,7 +337,7 @@ Pair 17: SLB-TLT
 
 Pair 18: HAL-IEF
   Statistical Score: 0.806
-  Meets Criteria: Yes
+  Meets Criteria: No
   Cointegration Test:
     p-value: 0.0182
     ADF p-value: 0.7287

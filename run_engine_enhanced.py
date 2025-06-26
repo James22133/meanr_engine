@@ -58,6 +58,8 @@ def main():
     parser.add_argument('--optimize', action='store_true', help='Run parameter optimization')
     parser.add_argument('--vectorbt-only', action='store_true', help='Use only vectorbt backtesting')
     parser.add_argument('--statistical-report', action='store_true', help='Generate detailed statistical report')
+    parser.add_argument('--walkforward', action='store_true', help='Run walk-forward analysis')
+    parser.add_argument('--walkforward-windows', type=int, default=5, help='Number of walk-forward windows')
     
     args = parser.parse_args()
     
@@ -79,19 +81,28 @@ def main():
         data_loader = DataLoader(config['data'])
         
         # Enhanced pair selector with statistical rigor
+        logger.info("Performing enhanced pair selection...")
+        pair_metrics = {}
+        
+        # Load statistical thresholds from config
+        statistical_config = config.get('statistical', {})
         statistical_thresholds = StatisticalThresholds(
-            adf_pvalue_max=config.get('statistical', {}).get('adf_pvalue_max', 0.05),
-            coint_pvalue_max=config.get('statistical', {}).get('coint_pvalue_max', 0.05),
-            r_squared_min=config.get('statistical', {}).get('r_squared_min', 0.7),
-            correlation_min=config.get('statistical', {}).get('correlation_min', 0.8),
-            hurst_threshold=config.get('statistical', {}).get('hurst_threshold', 0.5),
-            min_observations=config.get('statistical', {}).get('min_observations', 252)
+            adf_pvalue_max=statistical_config.get('adf_pvalue_max', 0.05),
+            coint_pvalue_max=statistical_config.get('coint_pvalue_max', 0.05),
+            r_squared_min=statistical_config.get('r_squared_min', 0.7),
+            correlation_min=statistical_config.get('correlation_min', 0.8),
+            hurst_threshold=statistical_config.get('hurst_threshold', 0.5),
+            min_observations=statistical_config.get('min_observations', 252),
+            max_volatility_spread=statistical_config.get('max_volatility_spread', 2.0),
+            max_sector_pairs=statistical_config.get('max_sector_pairs', 3),
+            min_sector_diversification=statistical_config.get('min_sector_diversification', 3)
         )
         
+        # Update enhanced pair selector with new thresholds
         enhanced_pair_selector = EnhancedPairSelector(config, statistical_thresholds)
         
         # Signal generator
-        signal_generator = SignalGenerator(config['signals'])
+        signal_generator = SignalGenerator(config)
         
         # Regime detector
         regime_detector = RegimeDetector(config['regime'])
@@ -138,10 +149,6 @@ def main():
         # Detect market regimes
         logger.info("Detecting market regimes...")
         all_regimes = regime_detector.detect_regimes(data)
-        
-        # Enhanced pair selection with statistical rigor
-        logger.info("Performing enhanced pair selection...")
-        pair_metrics = {}
         
         for pair in data_loader.get_all_pairs():
             pair_data = data_loader.get_pair_data(pair)
@@ -204,6 +211,13 @@ def main():
                         if results:
                             backtest_results[pair] = results
                             
+                            # Save detailed trade logs
+                            trade_log_file = vectorbt_backtest.save_trade_logs(
+                                results, pair, "trade_logs"
+                            )
+                            if trade_log_file:
+                                logger.info(f"Saved trade logs to {trade_log_file}")
+                            
                             # Generate vectorbt report
                             report = vectorbt_backtest.generate_report(results, f"{pair[0]}-{pair[1]}")
                             logger.info(report)
@@ -220,7 +234,9 @@ def main():
                                 logger.info(enhanced_report)
                             
                             # Aggregate trades for diagnostics
-                            if 'trades' in results and results['trades'] is not None:
+                            if 'detailed_trades' in results and results['detailed_trades']:
+                                all_trades.extend(results['detailed_trades'])
+                            elif 'trades' in results and results['trades'] is not None:
                                 all_trades.extend(results['trades'].to_dict('records'))
                             
                             # Aggregate equity curves
@@ -302,11 +318,128 @@ def main():
                     save_path=f"{plots_dir}/portfolio_equity.png"
                 )
         
+        # Walk-forward analysis if requested
+        if args.walkforward:
+            logger.info("Running walk-forward analysis...")
+            walkforward_results = _run_walkforward_analysis(
+                data, selected_pairs, config, args.walkforward_windows,
+                enhanced_pair_selector, vectorbt_backtest, logger
+            )
+            
+            # Log walk-forward results
+            if walkforward_results:
+                logger.info("Walk-forward analysis completed successfully!")
+                logger.info(f"Average out-of-sample Sharpe: {walkforward_results.get('avg_sharpe', 0):.3f}")
+                logger.info(f"Average out-of-sample return: {walkforward_results.get('avg_return', 0):.2%}")
+                logger.info(f"Strategy consistency: {walkforward_results.get('consistency', 0):.2%}")
+        
         logger.info("Enhanced backtesting completed successfully!")
         
     except Exception as e:
         logger.error(f"Error in enhanced engine: {e}")
         raise
+
+def _run_walkforward_analysis(data, selected_pairs, config, n_windows, 
+                            enhanced_pair_selector, vectorbt_backtest, logger):
+    """Run walk-forward analysis to validate strategy robustness."""
+    try:
+        # Calculate window size
+        total_days = len(data)
+        window_size = total_days // n_windows
+        overlap = window_size // 2  # 50% overlap
+        
+        walkforward_results = {
+            'windows': [],
+            'avg_sharpe': 0,
+            'avg_return': 0,
+            'consistency': 0
+        }
+        
+        for i in range(n_windows - 1):  # Leave last window for final testing
+            # Define training and testing periods
+            train_start = i * (window_size - overlap)
+            train_end = train_start + window_size
+            test_start = train_end
+            test_end = min(test_start + window_size, total_days)
+            
+            logger.info(f"Walk-forward window {i+1}/{n_windows-1}")
+            logger.info(f"Training: {data.index[train_start]} to {data.index[train_end-1]}")
+            logger.info(f"Testing: {data.index[test_start]} to {data.index[test_end-1]}")
+            
+            # Split data
+            train_data = data.iloc[train_start:train_end]
+            test_data = data.iloc[test_start:test_end]
+            
+            # Re-select pairs on training data
+            train_pair_metrics = {}
+            for pair in selected_pairs:
+                pair_data = train_data[[pair[0], pair[1]]].dropna()
+                if len(pair_data) > 252:  # Minimum data requirement
+                    metrics = enhanced_pair_selector.calculate_pair_metrics_enhanced(pair_data)
+                    if metrics and metrics.get('meets_criteria', False):
+                        train_pair_metrics[pair] = metrics
+            
+            # Select pairs for this window
+            window_pairs = enhanced_pair_selector.select_pairs_enhanced(train_pair_metrics)
+            logger.info(f"Selected {len(window_pairs)} pairs for window {i+1}")
+            
+            # Test on out-of-sample data
+            window_results = []
+            for pair in window_pairs:
+                if pair[0] in test_data.columns and pair[1] in test_data.columns:
+                    pair_data = test_data[[pair[0], pair[1]]].dropna()
+                    if len(pair_data) > 50:  # Minimum test data
+                        results = vectorbt_backtest.run_vectorized_backtest(
+                            pair_data.iloc[:, 0],
+                            pair_data.iloc[:, 1],
+                            lookback=config['signals'].get('lookback', 20),
+                            entry_threshold=config['signals'].get('entry_threshold', 2.0),
+                            exit_threshold=config['signals'].get('exit_threshold', 0.5)
+                        )
+                        
+                        if results and 'returns' in results:
+                            returns = results['returns']
+                            if len(returns) > 0:
+                                sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
+                                total_return = (1 + returns).prod() - 1
+                                window_results.append({
+                                    'pair': pair,
+                                    'sharpe': sharpe,
+                                    'return': total_return,
+                                    'trades': len(results.get('detailed_trades', []))
+                                })
+            
+            # Aggregate window results
+            if window_results:
+                avg_sharpe = np.mean([r['sharpe'] for r in window_results])
+                avg_return = np.mean([r['return'] for r in window_results])
+                total_trades = sum([r['trades'] for r in window_results])
+                
+                walkforward_results['windows'].append({
+                    'window': i+1,
+                    'pairs': len(window_pairs),
+                    'avg_sharpe': avg_sharpe,
+                    'avg_return': avg_return,
+                    'total_trades': total_trades,
+                    'results': window_results
+                })
+                
+                logger.info(f"Window {i+1} results: Sharpe={avg_sharpe:.3f}, Return={avg_return:.2%}, Trades={total_trades}")
+        
+        # Calculate overall statistics
+        if walkforward_results['windows']:
+            walkforward_results['avg_sharpe'] = np.mean([w['avg_sharpe'] for w in walkforward_results['windows']])
+            walkforward_results['avg_return'] = np.mean([w['avg_return'] for w in walkforward_results['windows']])
+            
+            # Calculate consistency (percentage of windows with positive Sharpe)
+            positive_sharpe_windows = sum(1 for w in walkforward_results['windows'] if w['avg_sharpe'] > 0)
+            walkforward_results['consistency'] = positive_sharpe_windows / len(walkforward_results['windows'])
+        
+        return walkforward_results
+        
+    except Exception as e:
+        logger.error(f"Error in walk-forward analysis: {e}")
+        return None
 
 if __name__ == "__main__":
     main() 
