@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A sophisticated quantitative trading engine implementing advanced pairs trading strategies using mean reversion principles, statistical arbitrage, and machine learning techniques.
+A quantitative trading engine implementing advanced pairs trading strategies using mean reversion principles, statistical arbitrage, and machine learning techniques.
 
 ## 🚀 Features
 
