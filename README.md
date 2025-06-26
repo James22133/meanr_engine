@@ -265,17 +265,12 @@ python alpaca_backtrader_sim.py \
     --mode paper
 ```
 
-### Risk Warnings
 
-⚠️ **Important**: This software is for educational and research purposes. Live trading involves substantial risk of loss. Always:
-- Test thoroughly in paper trading mode
-- Start with small position sizes
-- Monitor performance closely
-- Understand all risks involved
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these guidelines:
+Any Reccommendations for improvement or contributions would be sound.
+## Guidlines:
 
 1. **Fork** the repository
 2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
@@ -301,20 +296,4 @@ pytest
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 📞 Support
 
-- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/yourusername/meanr_engine/issues)
-- **Discussions**: Join community discussions in [GitHub Discussions](https://github.com/yourusername/meanr_engine/discussions)
-- **Documentation**: Check the [Wiki](https://github.com/yourusername/meanr_engine/wiki) for detailed guides
-
-## 🙏 Acknowledgments
-
-- **VectorBT**: High-performance backtesting framework
-- **Statsmodels**: Statistical modeling and testing
-- **Pandas**: Data manipulation and analysis
-- **YFinance**: Market data access
-- **Alpaca**: Trading API and infrastructure
-
----
-
-**Disclaimer**: This software is for educational purposes only. Trading involves substantial risk of loss and is not suitable for all investors. Past performance does not guarantee future results.
