@@ -230,8 +230,6 @@ class VectorBTBacktest:
             entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
             exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
 
-            # Optional ATR-based stop-loss
-            exit_signals = self._apply_atr_stop_loss(prices, entry_signals, exit_signals)
 
             size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
 
