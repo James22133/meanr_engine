@@ -44,12 +44,9 @@ class MetricsCalculator:
             
             # Calculate portfolio equity curve
             portfolio_equity = pd.concat(all_equity_curves, axis=1).sum(axis=1)
-            
-            # Calculate portfolio daily returns
-            if all_daily_returns:
-                portfolio_returns = pd.concat(all_daily_returns, axis=1).sum(axis=1)
-            else:
-                portfolio_returns = portfolio_equity.pct_change().fillna(0)
+
+            # Calculate portfolio daily returns from equity curve to avoid shape issues
+            portfolio_returns = portfolio_equity.pct_change().fillna(0)
             
             # Calculate comprehensive metrics
             metrics = self._calculate_basic_metrics(portfolio_equity, portfolio_returns)
@@ -77,8 +74,8 @@ class MetricsCalculator:
             years = days / 365.25
             annualized_return = ((final_capital / initial_capital) ** (1 / years)) - 1 if years > 0 else 0
             
-            # Annualized volatility
-            annualized_volatility = daily_returns.std() * np.sqrt(252)
+            # Annualized volatility from equity curve
+            annualized_volatility = self.calculate_volatility_from_equity(equity_curve)
             
             # Sharpe ratio
             risk_free_rate = getattr(self.config, 'risk_free_rate', 0.02)  # Default 2%
@@ -102,7 +99,7 @@ class MetricsCalculator:
     def _calculate_risk_metrics(self, equity_curve: pd.Series, daily_returns: pd.Series) -> Dict:
         """Calculate risk metrics."""
         try:
-            # Maximum drawdown
+            # Maximum drawdown from portfolio equity
             rolling_max = equity_curve.cummax()
             drawdown = (equity_curve - rolling_max) / rolling_max
             max_drawdown = drawdown.min()
@@ -304,6 +301,16 @@ class MetricsCalculator:
             rolling_max = equity_curve.cummax()
             drawdown = (equity_curve - rolling_max) / rolling_max
             return drawdown.min()
+        except Exception:
+            return 0.0
+
+    def calculate_volatility_from_equity(self, equity_curve: pd.Series) -> float:
+        """Compute annualized volatility from the equity curve."""
+        try:
+            returns = equity_curve.pct_change().dropna()
+            if returns.empty:
+                return 0.0
+            return returns.std() * np.sqrt(252)
         except Exception:
             return 0.0
 
