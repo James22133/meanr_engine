@@ -177,25 +177,33 @@ class VectorBTBacktest:
                 spread_tradeable = spread_abs
             
             # Create a single-asset portfolio based on the spread
-            # This allows VectorBT to properly execute trades on the spread
+            # Construct price and signal frames with consistent shapes
+            prices = pd.DataFrame({"asset1": price1, "asset2": price2})
+            entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
+            exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
+
+            size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
+
             portfolio = vbt.Portfolio.from_signals(
-                spread_tradeable,  # Trade the absolute spread as a single asset
-                entries,  # Entry signals
-                exits,    # Exit signals
+                close=prices,
+                entries=entry_signals,
+                exits=exit_signals,
+                size=size_df,
+                direction="both",
                 init_cash=self.config.initial_capital,
                 fees=self.config.fees,
                 slippage=self.config.slippage,
-                freq='1D',
-                size=0.25,  # Trade 25% of capital per position (aggressive sizing)
-                accumulate=False,  # Don't accumulate positions
-                upon_long_conflict='ignore',  # Ignore conflicting signals
-                upon_short_conflict='ignore'
+                freq="1D",
+                accumulate=False,
+                upon_long_conflict="ignore",
+                upon_short_conflict="ignore"
             )
             
             # Extract detailed trade information
             trade_records = portfolio.trades.records_readable
+            pair_label = (getattr(price1, "name", "A"), getattr(price2, "name", "B"))
             detailed_trades = self._extract_detailed_trades(
-                trade_records, price1, price2, entries, exits, regime_series
+                trade_records, price1, price2, entries, exits, regime_series, pair_label
             )
             
             # Extract results
@@ -223,10 +231,11 @@ class VectorBTBacktest:
             self.logger.error(f"Error running vectorized backtest: {e}")
             return {}
     
-    def _extract_detailed_trades(self, trade_records: pd.DataFrame, 
+    def _extract_detailed_trades(self, trade_records: pd.DataFrame,
                                 price1: pd.Series, price2: pd.Series,
                                 entries: pd.Series, exits: pd.Series,
-                                regime_series: Optional[pd.Series] = None) -> List[Dict]:
+                                regime_series: Optional[pd.Series] = None,
+                                pair_label: Tuple[str, str] = ("A", "B")) -> List[Dict]:
         """Extract detailed trade information for analysis."""
         try:
             detailed_trades = []
@@ -331,6 +340,7 @@ class VectorBTBacktest:
                     slippage = trade.get('Slippage', 0.0)
                     
                     detailed_trade = {
+                        'pair': f"{pair_label[0]}-{pair_label[1]}",
                         'entry_date': entry_idx,
                         'exit_date': exit_idx,
                         'direction': direction,
@@ -462,13 +472,22 @@ class VectorBTBacktest:
                 )
                 if regime_series is not None:
                     entries = self.apply_regime_scaling(entries, regime_series)
-                prices = pd.DataFrame({'asset1': price1, 'asset2': price2})
+
+                prices = pd.DataFrame({"asset1": price1, "asset2": price2})
+                entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
+                exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
+                size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
+
                 portfolio = vbt.Portfolio.from_signals(
-                    prices, entries, exits,
+                    close=prices,
+                    entries=entry_signals,
+                    exits=exit_signals,
+                    size=size_df,
+                    direction="both",
                     init_cash=self.config.initial_capital,
                     fees=self.config.fees,
                     slippage=self.config.slippage,
-                    freq='1D'
+                    freq="1D"
                 )
                 return portfolio.sharpe_ratio()
 
