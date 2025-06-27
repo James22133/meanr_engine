@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 import warnings
+from core.trade_extraction import filter_long_holding_trades
 
 # Fix for vectorbt API change - use new import
 try:
@@ -44,6 +45,9 @@ class VectorBTConfig:
     regime_scaling: bool = True
     regime_volatility_multiplier: float = 1.0
     regime_trend_multiplier: float = 1.0
+    max_holding_days: int = 30
+    atr_stop_loss_mult: Optional[float] = None
+    atr_lookback: int = 14
 
 class VectorBTBacktest:
     """High-performance vectorbt-based backtesting engine."""
@@ -146,6 +150,50 @@ class VectorBTBacktest:
         except Exception as e:
             self.logger.error(f"Error applying regime scaling: {e}")
             return signals
+
+    def _apply_atr_stop_loss(
+        self,
+        prices: pd.DataFrame,
+        entries: pd.DataFrame,
+        exits: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Create stop-loss exit signals based on ATR of the spread."""
+        if self.config.atr_stop_loss_mult is None:
+            return exits
+
+        try:
+            spread = prices["asset1"] - prices["asset2"]
+            tr = spread.diff().abs()
+            atr = tr.rolling(self.config.atr_lookback).mean()
+
+            stop_exits = pd.Series(False, index=spread.index)
+            position = 0
+            entry_spread = 0.0
+
+            for i, date in enumerate(spread.index):
+                if position == 0:
+                    if entries["asset1"].iloc[i] == 1 or entries["asset1"].iloc[i] == -1:
+                        position = int(entries["asset1"].iloc[i])
+                        entry_spread = spread.iloc[i]
+                else:
+                    stop_level = atr.iloc[i] * self.config.atr_stop_loss_mult
+                    if position == 1 and spread.iloc[i] - entry_spread < -stop_level:
+                        stop_exits.iloc[i] = True
+                        position = 0
+                    elif position == -1 and spread.iloc[i] - entry_spread > stop_level:
+                        stop_exits.iloc[i] = True
+                        position = 0
+
+                if exits["asset1"].iloc[i] or exits["asset2"].iloc[i]:
+                    position = 0
+
+            exits_combined = exits.copy()
+            exits_combined["asset1"] = exits_combined["asset1"] | stop_exits
+            exits_combined["asset2"] = exits_combined["asset2"] | stop_exits
+            return exits_combined
+        except Exception as e:
+            self.logger.error(f"Error applying ATR stop loss: {e}")
+            return exits
     
     def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
                                regime_series: Optional[pd.Series] = None,
@@ -182,6 +230,7 @@ class VectorBTBacktest:
             entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
             exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
 
+
             size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
 
             portfolio = vbt.Portfolio.from_signals(
@@ -205,6 +254,12 @@ class VectorBTBacktest:
             detailed_trades = self._extract_detailed_trades(
                 trade_records, price1, price2, entries, exits, regime_series, pair_label
             )
+
+            # Filter trades with excessive holding periods
+            if detailed_trades and self.config.max_holding_days:
+                detailed_trades = filter_long_holding_trades(
+                    detailed_trades, self.config.max_holding_days
+                )
             
             # Extract results
             results = {

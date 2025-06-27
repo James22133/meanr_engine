@@ -291,41 +291,71 @@ class PairSelector:
             signals['entry_short'] = z_score > entry_threshold   # Short when spread is high
             signals['exit'] = (z_score >= -exit_threshold) & (z_score <= exit_threshold)  # Exit when mean-reverting
             
-            # Enhanced debug logging
-            long_signals = signals['entry_long'].sum()
-            short_signals = signals['entry_short'].sum()
-            exit_signals = signals['exit'].sum()
-            total_signals = long_signals + short_signals
-            
-            # Log detailed statistics
-            self.logger.info(f"=== SIGNAL GENERATION DEBUG ===")
-            self.logger.info(f"Pair: {pair_data.columns[0]}-{pair_data.columns[1]}")
-            self.logger.info(f"Data points: {len(pair_data)}")
-            self.logger.info(f"Z-score range: {z_score.min():.3f} to {z_score.max():.3f}")
-            self.logger.info(f"Z-score mean: {z_score.mean():.3f}, std: {z_score.std():.3f}")
-            self.logger.info(f"Thresholds - Entry: {entry_threshold}, Exit: {exit_threshold}")
-            self.logger.info(f"Signals generated - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
-            self.logger.info(f"Total entry signals: {total_signals}")
-            
-            # Log recent z-score values for debugging
-            recent_zscore = z_score.tail(10)
-            self.logger.info(f"Recent z-scores: {recent_zscore.values}")
-            
-            # Check if we have any extreme z-scores
-            extreme_positive = (z_score > entry_threshold).sum()
-            extreme_negative = (z_score < -entry_threshold).sum()
-            self.logger.info(f"Extreme z-scores > {entry_threshold}: {extreme_positive}")
-            self.logger.info(f"Extreme z-scores < -{entry_threshold}: {extreme_negative}")
-            
-            if total_signals == 0:
-                self.logger.warning(f"No entry signals generated! Consider lowering entry threshold.")
-                # Log some sample z-score values around the threshold
-                near_threshold = z_score[abs(z_score) >= entry_threshold * 0.8]
-                if len(near_threshold) > 0:
-                    self.logger.info(f"Z-scores near threshold: {near_threshold.head(5).values}")
+            # Detailed logging in separate method for reuse
+            self._log_signal_stats(
+                pair_data, z_score, entry_threshold, exit_threshold, signals
+            )
             
             return signals
             
         except Exception as e:
             self.logger.error(f"Error generating signals: {str(e)}")
-            return pd.DataFrame() 
+            return pd.DataFrame()
+
+    def _log_signal_stats(
+        self,
+        pair_data: pd.DataFrame,
+        z_score: pd.Series,
+        entry_threshold: float,
+        exit_threshold: float,
+        signals: pd.DataFrame,
+    ) -> None:
+        """Log detailed signal generation statistics."""
+        try:
+            long_signals = signals["entry_long"].sum()
+            short_signals = signals["entry_short"].sum()
+            exit_signals = signals["exit"].sum()
+            total_signals = long_signals + short_signals
+
+            self.logger.info("=== SIGNAL GENERATION DEBUG ===")
+            self.logger.info(
+                f"Pair: {pair_data.columns[0]}-{pair_data.columns[1]}"
+            )
+            self.logger.info(f"Data points: {len(pair_data)}")
+            self.logger.info(
+                f"Z-score range: {z_score.min():.3f} to {z_score.max():.3f}"
+            )
+            self.logger.info(
+                f"Z-score mean: {z_score.mean():.3f}, std: {z_score.std():.3f}"
+            )
+            self.logger.info(
+                f"Thresholds - Entry: {entry_threshold}, Exit: {exit_threshold}"
+            )
+            self.logger.info(
+                f"Signals generated - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}"
+            )
+            self.logger.info(f"Total entry signals: {total_signals}")
+
+            recent_zscore = z_score.tail(10)
+            self.logger.info(f"Recent z-scores: {recent_zscore.values}")
+
+            extreme_positive = (z_score > entry_threshold).sum()
+            extreme_negative = (z_score < -entry_threshold).sum()
+            self.logger.info(
+                f"Extreme z-scores > {entry_threshold}: {extreme_positive}"
+            )
+            self.logger.info(
+                f"Extreme z-scores < -{entry_threshold}: {extreme_negative}"
+            )
+
+            if total_signals == 0:
+                self.logger.warning(
+                    "No entry signals generated! Consider lowering entry threshold."
+                )
+                near_threshold = z_score[abs(z_score) >= entry_threshold * 0.8]
+                if not near_threshold.empty:
+                    self.logger.info(
+                        f"Z-scores near threshold: {near_threshold.head(5).values}"
+                    )
+        except Exception as e:
+            self.logger.error(f"Error logging signal stats: {e}")
