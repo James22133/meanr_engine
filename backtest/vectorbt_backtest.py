@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 import warnings
+from core.trade_extraction import filter_long_holding_trades
 
 # Fix for vectorbt API change - use new import
 try:
@@ -44,6 +45,9 @@ class VectorBTConfig:
     regime_scaling: bool = True
     regime_volatility_multiplier: float = 1.0
     regime_trend_multiplier: float = 1.0
+    max_holding_days: int = 30
+    atr_stop_loss_mult: Optional[float] = None
+    atr_lookback: int = 14
 
 class VectorBTBacktest:
     """High-performance vectorbt-based backtesting engine."""
@@ -146,6 +150,50 @@ class VectorBTBacktest:
         except Exception as e:
             self.logger.error(f"Error applying regime scaling: {e}")
             return signals
+
+    def _apply_atr_stop_loss(
+        self,
+        prices: pd.DataFrame,
+        entries: pd.DataFrame,
+        exits: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Create stop-loss exit signals based on ATR of the spread."""
+        if self.config.atr_stop_loss_mult is None:
+            return exits
+
+        try:
+            spread = prices["asset1"] - prices["asset2"]
+            tr = spread.diff().abs()
+            atr = tr.rolling(self.config.atr_lookback).mean()
+
+            stop_exits = pd.Series(False, index=spread.index)
+            position = 0
+            entry_spread = 0.0
+
+            for i, date in enumerate(spread.index):
+                if position == 0:
+                    if entries["asset1"].iloc[i] == 1 or entries["asset1"].iloc[i] == -1:
+                        position = int(entries["asset1"].iloc[i])
+                        entry_spread = spread.iloc[i]
+                else:
+                    stop_level = atr.iloc[i] * self.config.atr_stop_loss_mult
+                    if position == 1 and spread.iloc[i] - entry_spread < -stop_level:
+                        stop_exits.iloc[i] = True
+                        position = 0
+                    elif position == -1 and spread.iloc[i] - entry_spread > stop_level:
+                        stop_exits.iloc[i] = True
+                        position = 0
+
+                if exits["asset1"].iloc[i] or exits["asset2"].iloc[i]:
+                    position = 0
+
+            exits_combined = exits.copy()
+            exits_combined["asset1"] = exits_combined["asset1"] | stop_exits
+            exits_combined["asset2"] = exits_combined["asset2"] | stop_exits
+            return exits_combined
+        except Exception as e:
+            self.logger.error(f"Error applying ATR stop loss: {e}")
+            return exits
     
     def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
                                regime_series: Optional[pd.Series] = None,
@@ -177,26 +225,43 @@ class VectorBTBacktest:
                 spread_tradeable = spread_abs
             
             # Create a single-asset portfolio based on the spread
-            # This allows VectorBT to properly execute trades on the spread
+            # Construct price and signal frames with consistent shapes
+            prices = pd.DataFrame({"asset1": price1, "asset2": price2})
+            entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
+            exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
+
+            # Optional ATR-based stop-loss
+            exit_signals = self._apply_atr_stop_loss(prices, entry_signals, exit_signals)
+
+            size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
+
             portfolio = vbt.Portfolio.from_signals(
-                spread_tradeable,  # Trade the absolute spread as a single asset
-                entries,  # Entry signals
-                exits,    # Exit signals
+                close=prices,
+                entries=entry_signals,
+                exits=exit_signals,
+                size=size_df,
+                direction="both",
                 init_cash=self.config.initial_capital,
                 fees=self.config.fees,
                 slippage=self.config.slippage,
-                freq='1D',
-                size=0.25,  # Trade 25% of capital per position (aggressive sizing)
-                accumulate=False,  # Don't accumulate positions
-                upon_long_conflict='ignore',  # Ignore conflicting signals
-                upon_short_conflict='ignore'
+                freq="1D",
+                accumulate=False,
+                upon_long_conflict="ignore",
+                upon_short_conflict="ignore"
             )
             
             # Extract detailed trade information
             trade_records = portfolio.trades.records_readable
+            pair_label = (getattr(price1, "name", "A"), getattr(price2, "name", "B"))
             detailed_trades = self._extract_detailed_trades(
-                trade_records, price1, price2, entries, exits, regime_series
+                trade_records, price1, price2, entries, exits, regime_series, pair_label
             )
+
+            # Filter trades with excessive holding periods
+            if detailed_trades and self.config.max_holding_days:
+                detailed_trades = filter_long_holding_trades(
+                    detailed_trades, self.config.max_holding_days
+                )
             
             # Extract results
             results = {
@@ -223,10 +288,11 @@ class VectorBTBacktest:
             self.logger.error(f"Error running vectorized backtest: {e}")
             return {}
     
-    def _extract_detailed_trades(self, trade_records: pd.DataFrame, 
+    def _extract_detailed_trades(self, trade_records: pd.DataFrame,
                                 price1: pd.Series, price2: pd.Series,
                                 entries: pd.Series, exits: pd.Series,
-                                regime_series: Optional[pd.Series] = None) -> List[Dict]:
+                                regime_series: Optional[pd.Series] = None,
+                                pair_label: Tuple[str, str] = ("A", "B")) -> List[Dict]:
         """Extract detailed trade information for analysis."""
         try:
             detailed_trades = []
@@ -331,6 +397,7 @@ class VectorBTBacktest:
                     slippage = trade.get('Slippage', 0.0)
                     
                     detailed_trade = {
+                        'pair': f"{pair_label[0]}-{pair_label[1]}",
                         'entry_date': entry_idx,
                         'exit_date': exit_idx,
                         'direction': direction,
@@ -462,13 +529,22 @@ class VectorBTBacktest:
                 )
                 if regime_series is not None:
                     entries = self.apply_regime_scaling(entries, regime_series)
-                prices = pd.DataFrame({'asset1': price1, 'asset2': price2})
+
+                prices = pd.DataFrame({"asset1": price1, "asset2": price2})
+                entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
+                exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
+                size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
+
                 portfolio = vbt.Portfolio.from_signals(
-                    prices, entries, exits,
+                    close=prices,
+                    entries=entry_signals,
+                    exits=exit_signals,
+                    size=size_df,
+                    direction="both",
                     init_cash=self.config.initial_capital,
                     fees=self.config.fees,
                     slippage=self.config.slippage,
-                    freq='1D'
+                    freq="1D"
                 )
                 return portfolio.sharpe_ratio()
 

@@ -42,6 +42,7 @@ signals:
   lookback: 20
   entry_threshold: 2.0
   exit_threshold: 0.5
+  max_holding_days: 30
   zscore_window: 20
   entry_quantile: 0.9
   exit_quantile: 0.5
