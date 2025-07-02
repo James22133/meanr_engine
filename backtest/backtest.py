@@ -5,6 +5,8 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 import logging
 
+from .metrics import calculate_sortino_ratio
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -756,9 +758,49 @@ class PairsBacktest:
 
     def check_skew_filter(self, pair: Tuple[str, str], date: pd.Timestamp) -> bool:
         """Check if trade passes skew filter criteria."""
-        # For now, always return True to allow trades
-        # TODO: Implement proper skew filtering if needed
-        return True
+        try:
+            cfg = {}
+            if isinstance(self.config, dict):
+                cfg = self.config.get('risk_management', {}).get('skew_filter', {})
+            else:
+                cfg = getattr(self.config, 'risk_management', {})
+                cfg = getattr(cfg, 'skew_filter', {}) if cfg else {}
+
+            if not cfg or not cfg.get('enabled', False):
+                return True
+
+            lookback = int(cfg.get('lookback', 60))
+            min_ratio = cfg.get('min_down_up_ratio')
+            min_sortino = cfg.get('min_sortino')
+
+            if self.prices is None or date not in self.prices.index:
+                return True
+
+            end_idx = self.prices.index.get_loc(date)
+            start_idx = max(0, end_idx - lookback + 1)
+            window = self.prices.iloc[start_idx : end_idx + 1]
+            if window.empty or len(window) < 2:
+                return True
+
+            spread = window[pair[0]] - window[pair[1]]
+            returns = spread.pct_change().dropna()
+            if returns.empty:
+                return True
+
+            downside = returns[returns < 0].abs().mean()
+            upside = returns[returns > 0].mean()
+            down_up_ratio = upside / downside if downside and downside > 0 else np.inf
+
+            sortino = calculate_sortino_ratio(returns, 0.0)
+
+            if min_ratio is not None and down_up_ratio < min_ratio:
+                return False
+            if min_sortino is not None and sortino < min_sortino:
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Error applying skew filter: {e}")
+            return True
 
     def get_position_size(self, pair: Tuple[str, str], date: pd.Timestamp,
                          regime: int) -> float:
