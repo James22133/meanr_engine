@@ -35,7 +35,7 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 def load_config(config_path: str) -> Config:
-    """Load configuration from YAML file."""
+    """Load configuration from YAML file into a Config object."""
     return Config.from_yaml(config_path)
 
 def main():
@@ -51,7 +51,9 @@ def main():
         logger = setup_logging()
         
         # Initialize components
-        data_loader = DataLoader(config)
+        # Note: We are passing dicts now, not a Config object.
+        # The components need to be able to handle this.
+        data_loader = DataLoader(config) 
         pair_selector = PairSelector(config)
         backtest_runner = PairsBacktest(config.backtest, data_loader)
         metrics_calculator = MetricsCalculator(config)

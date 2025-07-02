@@ -221,89 +221,78 @@ class EnhancedPairSelector:
     def calculate_pair_metrics_enhanced(self, pair_data: pd.DataFrame) -> Optional[Dict]:
         """Calculate enhanced pair metrics with statistical rigor."""
         try:
-            if pair_data is None or pair_data.empty:
+            if pair_data is None or pair_data.empty or len(pair_data.columns) < 2:
                 return None
-            
-            # Extract price series
-            asset1_col = pair_data.columns[0]
-            asset2_col = pair_data.columns[1]
-            
-            price1 = pair_data[asset1_col]
-            price2 = pair_data[asset2_col]
-            
-            # Test cointegration
+
+            asset1_col, asset2_col = pair_data.columns[0], pair_data.columns[1]
+            price1, price2 = pair_data[asset1_col], pair_data[asset2_col]
+
             coint_results = self.test_cointegration(price1, price2)
-            
-            # Calculate basic metrics
-            returns1 = price1.pct_change().dropna()
-            returns2 = price2.pct_change().dropna()
-            
-            # Align returns
+            if not coint_results:
+                self.logger.warning(f"Cointegration test returned no results for {asset1_col}-{asset2_col}.")
+                return None
+
+            returns1, returns2 = price1.pct_change().dropna(), price2.pct_change().dropna()
             common_index = returns1.index.intersection(returns2.index)
             if len(common_index) < 50:
                 return None
-                
-            returns1_aligned = returns1.loc[common_index]
-            returns2_aligned = returns2.loc[common_index]
             
-            # Calculate spread metrics
+            returns1_aligned, returns2_aligned = returns1.loc[common_index], returns2.loc[common_index]
+            
             spread = price1 - price2
             spread_returns = spread.pct_change().dropna()
             
-            # Rolling statistics
             lookback = 20
-            rolling_mean = spread.rolling(lookback).mean()
-            rolling_std = spread.rolling(lookback).std()
-            z_score = (spread - rolling_mean) / rolling_std
+            z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
             
-            # Volatility metrics
             vol1 = returns1_aligned.std() * np.sqrt(252)
             vol2 = returns2_aligned.std() * np.sqrt(252)
             vol_spread = spread_returns.std() * np.sqrt(252)
             
-            # Correlation metrics
-            correlation = returns1_aligned.corr(returns2_aligned)
-            correlation_rolling = returns1_aligned.rolling(60).corr(returns2_aligned)
-            
-            # Statistical significance tests
             t_stat, p_value = stats.pearsonr(returns1_aligned, returns2_aligned)
             
-            # Check if pair meets statistical criteria
+            # Safe access to coint_results with .get()
+            is_cointegrated = coint_results.get('is_cointegrated', False)
+            r_squared = coint_results.get('r_squared', 0)
+            correlation = coint_results.get('correlation', 0)
+            hurst = coint_results.get('hurst_exponent', 1.0)
+            observations = coint_results.get('observations', 0)
+
             meets_criteria = (
-                coint_results['is_cointegrated'] and
-                coint_results['r_squared'] >= self.statistical_thresholds.r_squared_min and
-                abs(coint_results['correlation']) >= self.statistical_thresholds.correlation_min and
-                coint_results['hurst_exponent'] <= self.statistical_thresholds.hurst_threshold and
-                coint_results['observations'] >= self.statistical_thresholds.min_observations and
+                is_cointegrated and
+                r_squared >= self.statistical_thresholds.r_squared_min and
+                abs(correlation) >= self.statistical_thresholds.correlation_min and
+                hurst <= self.statistical_thresholds.hurst_threshold and
+                observations >= self.statistical_thresholds.min_observations and
                 self.check_volatility_spread_risk(vol1, vol2, vol_spread)
             )
             
             return {
                 'asset1': asset1_col,
                 'asset2': asset2_col,
-                'is_cointegrated': coint_results['is_cointegrated'],
-                'coint_pvalue': coint_results['coint_pvalue'],
-                'adf_pvalue': coint_results['adf_pvalue'],
-                'r_squared': coint_results['r_squared'],
-                'correlation': coint_results['correlation'],
-                'hurst_exponent': coint_results['hurst_exponent'],
-                'heteroscedasticity_pvalue': coint_results['heteroscedasticity_pvalue'],
+                'is_cointegrated': is_cointegrated,
+                'coint_pvalue': coint_results.get('coint_pvalue', 1.0),
+                'adf_pvalue': coint_results.get('adf_pvalue', 1.0),
+                'r_squared': r_squared,
+                'correlation': correlation,
+                'hurst_exponent': hurst,
+                'heteroscedasticity_pvalue': coint_results.get('heteroscedasticity_pvalue', 1.0),
                 'volatility_asset1': vol1,
                 'volatility_asset2': vol2,
                 'volatility_spread': vol_spread,
                 'correlation_t_stat': t_stat,
                 'correlation_p_value': p_value,
-                'spread_mean': coint_results['spread_mean'],
-                'spread_std': coint_results['spread_std'],
+                'spread_mean': coint_results.get('spread_mean', np.nan),
+                'spread_std': coint_results.get('spread_std', np.nan),
                 'z_score_mean': z_score.mean(),
                 'z_score_std': z_score.std(),
-                'observations': coint_results['observations'],
+                'observations': observations,
                 'meets_criteria': meets_criteria,
                 'statistical_score': self._calculate_statistical_score(coint_results)
             }
             
         except Exception as e:
-            self.logger.error(f"Error calculating enhanced pair metrics: {e}")
+            self.logger.error(f"Error calculating enhanced pair metrics for {pair_data.columns if pair_data is not None else 'N/A'}: {e}", exc_info=True)
             return None
     
     def _calculate_statistical_score(self, coint_results: Dict) -> float:
@@ -336,21 +325,54 @@ class EnhancedPairSelector:
         try:
             # Filter pairs that meet criteria
             qualified_pairs = []
+            rejected_pairs = []
             
             for pair, metrics in pair_metrics.items():
-                if metrics and metrics.get('meets_criteria', False):
-                    qualified_pairs.append((pair, metrics))
+                if metrics:
+                    # Debug logging for each pair
+                    self.logger.info(f"Pair {pair[0]}-{pair[1]}:")
+                    self.logger.info(f"  Cointegration p-value: {metrics.get('coint_pvalue', 'N/A'):.4f}")
+                    self.logger.info(f"  R-squared: {metrics.get('r_squared', 'N/A'):.3f}")
+                    self.logger.info(f"  Correlation: {metrics.get('correlation', 'N/A'):.3f}")
+                    self.logger.info(f"  Hurst Exponent: {metrics.get('hurst_exponent', 'N/A'):.3f}")
+                    self.logger.info(f"  Observations: {metrics.get('observations', 'N/A')}")
+                    self.logger.info(f"  Meets Criteria: {metrics.get('meets_criteria', False)}")
+                    self.logger.info(f"  Statistical Score: {metrics.get('statistical_score', 'N/A'):.3f}")
+                    
+                    if metrics.get('meets_criteria', False):
+                        qualified_pairs.append((pair, metrics))
+                        self.logger.info(f"  ✅ PASSES CRITERIA")
+                    else:
+                        # Check why pairs are rejected
+                        rejection_reasons = []
+                        if not metrics.get('is_cointegrated', False):
+                            rejection_reasons.append("Not cointegrated")
+                        if metrics.get('r_squared', 0) < self.statistical_thresholds.r_squared_min:
+                            rejection_reasons.append(f"R² too low ({metrics.get('r_squared', 0):.3f} < {self.statistical_thresholds.r_squared_min})")
+                        if abs(metrics.get('correlation', 0)) < self.statistical_thresholds.correlation_min:
+                            rejection_reasons.append(f"Correlation too low ({abs(metrics.get('correlation', 0)):.3f} < {self.statistical_thresholds.correlation_min})")
+                        if metrics.get('hurst_exponent', 0.5) > self.statistical_thresholds.hurst_threshold:
+                            rejection_reasons.append(f"Hurst too high ({metrics.get('hurst_exponent', 0.5):.3f} > {self.statistical_thresholds.hurst_threshold})")
+                        if metrics.get('observations', 0) < self.statistical_thresholds.min_observations:
+                            rejection_reasons.append(f"Too few observations ({metrics.get('observations', 0)} < {self.statistical_thresholds.min_observations})")
+                        
+                        if rejection_reasons:
+                            self.logger.info(f"  ❌ Rejected: {', '.join(rejection_reasons)}")
+                            rejected_pairs.append((pair, rejection_reasons))
+                        else:
+                            self.logger.info(f"  ❌ Rejected: Unknown reason")
             
             # Sort by statistical score
             qualified_pairs.sort(key=lambda x: x[1]['statistical_score'], reverse=True)
             
-            # Apply sector diversification
+            # Apply sector diversification (or bypass if disabled)
             selected_pairs = self._apply_sector_diversification(qualified_pairs)
             
             # Log selection results
-            self.logger.info(f"Enhanced pair selection results:")
+            self.logger.info(f"REALISTIC THRESHOLD RESULTS:")
             self.logger.info(f"Total pairs analyzed: {len(pair_metrics)}")
             self.logger.info(f"Pairs meeting criteria: {len(qualified_pairs)}")
+            self.logger.info(f"Pairs rejected: {len(rejected_pairs)}")
             self.logger.info(f"Pairs selected after diversification: {len(selected_pairs)}")
             
             # Log sector distribution
@@ -359,7 +381,7 @@ class EnhancedPairSelector:
             
             # Log detailed statistics for selected pairs
             for i, (pair, metrics) in enumerate(qualified_pairs[:len(selected_pairs)]):
-                self.logger.info(f"Pair {i+1}: {pair[0]}-{pair[1]}")
+                self.logger.info(f"SELECTED Pair {i+1}: {pair[0]}-{pair[1]}")
                 self.logger.info(f"  Statistical Score: {metrics['statistical_score']:.3f}")
                 self.logger.info(f"  Cointegration p-value: {metrics['coint_pvalue']:.4f}")
                 self.logger.info(f"  R-squared: {metrics['r_squared']:.3f}")
@@ -378,6 +400,13 @@ class EnhancedPairSelector:
         """Apply sector diversification to selected pairs."""
         selected_pairs = []
         sector_counts = defaultdict(int)
+        
+        # Check if sector filtering is disabled in config
+        sector_filter_enabled = getattr(self.config, 'sector_filter_enabled', True)
+        if not sector_filter_enabled:
+            # If sector filtering is disabled, just return top pairs without sector constraints
+            max_pairs = getattr(self.config, 'max_pairs', 10)
+            return [pair for pair, _ in qualified_pairs[:max_pairs]]
         
         for pair, metrics in qualified_pairs:
             sector1 = self.get_asset_sector(pair[0])

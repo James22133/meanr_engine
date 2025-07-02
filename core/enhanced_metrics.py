@@ -80,24 +80,47 @@ class EnhancedMetricsCalculator:
             
             # Calculate benchmark-relative metrics if benchmark provided
             if self.config.benchmark_returns is not None:
-                benchmark_clean = self.config.benchmark_returns.dropna()
-                common_index = returns_clean.index.intersection(benchmark_clean.index)
-                
-                if len(common_index) > 0:
-                    returns_aligned = returns_clean.loc[common_index]
-                    benchmark_aligned = benchmark_clean.loc[common_index]
+                try:
+                    benchmark_clean = self.config.benchmark_returns.dropna()
+                    common_index = returns_clean.index.intersection(benchmark_clean.index)
                     
-                    information_ratio = self._information_ratio(returns_aligned, benchmark_aligned)
-                    beta = self._beta(returns_aligned, benchmark_aligned)
-                    alpha = self._alpha(returns_aligned, benchmark_aligned)
-                    treynor_ratio = self._treynor_ratio(returns_aligned, benchmark_aligned)
+                    if len(common_index) > 0:
+                        returns_aligned = returns_clean.loc[common_index]
+                        benchmark_aligned = benchmark_clean.loc[common_index]
+                        
+                        information_ratio = self._information_ratio(returns_aligned, benchmark_aligned)
+                        beta = self._beta(returns_aligned, benchmark_aligned)
+                        alpha = self._alpha(returns_aligned, benchmark_aligned)
+                        treynor_ratio = self._treynor_ratio(returns_aligned, benchmark_aligned)
+                except Exception as e:
+                    self.logger.warning(f"Error calculating benchmark metrics: {e}")
             
             # Calculate rolling metrics
-            rolling_sharpe = self._rolling_sharpe(returns_clean)
-            rolling_volatility = self._rolling_volatility(returns_clean)
+            try:
+                rolling_sharpe = self._rolling_sharpe(returns_clean)
+                rolling_volatility = self._rolling_volatility(returns_clean)
+            except Exception as e:
+                self.logger.warning(f"Error calculating rolling metrics: {e}")
+                rolling_sharpe = pd.Series(dtype=float)
+                rolling_volatility = pd.Series(dtype=float)
             
             # Calculate regime-specific metrics
-            regime_metrics = self._calculate_regime_metrics(returns_clean)
+            try:
+                regime_metrics = self._calculate_regime_metrics(returns_clean)
+            except Exception as e:
+                self.logger.warning(f"Error calculating regime metrics: {e}")
+                regime_metrics = {}
+            
+            # Calculate additional statistics with proper error handling
+            try:
+                positive_days = (returns_clean > 0).sum()
+                negative_days = (returns_clean < 0).sum()
+                zero_days = (returns_clean == 0).sum()
+            except Exception as e:
+                self.logger.warning(f"Error calculating day statistics: {e}")
+                positive_days = 0
+                negative_days = 0
+                zero_days = 0
             
             return {
                 # Basic metrics
@@ -150,9 +173,9 @@ class EnhancedMetricsCalculator:
                 
                 # Additional statistics
                 'observations': len(returns_clean),
-                'positive_days': (returns_clean > 0).sum(),
-                'negative_days': (returns_clean < 0).sum(),
-                'zero_days': (returns_clean == 0).sum()
+                'positive_days': positive_days,
+                'negative_days': negative_days,
+                'zero_days': zero_days
             }
             
         except Exception as e:
@@ -175,13 +198,15 @@ class EnhancedMetricsCalculator:
     
     def _sharpe_ratio(self, returns: pd.Series) -> float:
         """Calculate Sharpe ratio."""
-        excess_returns = returns - self.config.risk_free_rate / self.config.periods_per_year
-        if returns.std() == 0:
+        if returns.empty or returns.std() == 0:
             return 0
+        excess_returns = returns - self.config.risk_free_rate / self.config.periods_per_year
         return excess_returns.mean() / returns.std() * np.sqrt(self.config.periods_per_year)
     
     def _sortino_ratio(self, returns: pd.Series) -> float:
         """Calculate Sortino ratio."""
+        if returns.empty:
+            return 0
         excess_returns = returns - self.config.risk_free_rate / self.config.periods_per_year
         downside_returns = returns[returns < 0]
         if len(downside_returns) == 0 or downside_returns.std() == 0:
@@ -190,6 +215,8 @@ class EnhancedMetricsCalculator:
     
     def _calmar_ratio(self, returns: pd.Series) -> float:
         """Calculate Calmar ratio."""
+        if returns.empty:
+            return 0
         annual_return = self._annual_return(returns)
         max_dd = self._max_drawdown(returns)
         if max_dd == 0:
@@ -198,6 +225,8 @@ class EnhancedMetricsCalculator:
     
     def _max_drawdown(self, returns: pd.Series) -> float:
         """Calculate maximum drawdown."""
+        if returns.empty:
+            return 0
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.expanding().max()
         drawdown = (cumulative - running_max) / running_max
@@ -205,6 +234,8 @@ class EnhancedMetricsCalculator:
     
     def _avg_drawdown(self, returns: pd.Series) -> float:
         """Calculate average drawdown."""
+        if returns.empty:
+            return 0
         cumulative = (1 + returns).cumprod()
         running_max = cumulative.expanding().max()
         drawdown = (cumulative - running_max) / running_max
@@ -212,25 +243,35 @@ class EnhancedMetricsCalculator:
     
     def _value_at_risk(self, returns: pd.Series, cutoff: float) -> float:
         """Calculate Value at Risk."""
+        if returns.empty:
+            return 0
         return np.percentile(returns, cutoff * 100)
     
     def _conditional_value_at_risk(self, returns: pd.Series, cutoff: float) -> float:
         """Calculate Conditional Value at Risk (Expected Shortfall)."""
+        if returns.empty:
+            return 0
         var = self._value_at_risk(returns, cutoff)
         return returns[returns <= var].mean()
     
     def _tail_ratio(self, returns: pd.Series) -> float:
         """Calculate tail ratio."""
+        if returns.empty:
+            return 0
         left_tail = np.percentile(returns, 5)
         right_tail = np.percentile(returns, 95)
         return abs(right_tail / left_tail) if left_tail != 0 else 0
     
     def _stability_of_timeseries(self, returns: pd.Series) -> float:
         """Calculate stability of timeseries."""
-        return 1 - returns.std() / returns.mean() if returns.mean() != 0 else 0
+        if returns.empty or returns.mean() == 0:
+            return 0
+        return 1 - returns.std() / returns.mean()
     
     def _downside_risk(self, returns: pd.Series) -> float:
         """Calculate downside risk."""
+        if returns.empty:
+            return 0
         downside_returns = returns[returns < 0]
         if len(downside_returns) == 0:
             return 0
@@ -238,6 +279,8 @@ class EnhancedMetricsCalculator:
     
     def _upside_risk(self, returns: pd.Series) -> float:
         """Calculate upside risk."""
+        if returns.empty:
+            return 0
         upside_returns = returns[returns > 0]
         if len(upside_returns) == 0:
             return 0
@@ -245,21 +288,29 @@ class EnhancedMetricsCalculator:
     
     def _win_rate(self, returns: pd.Series) -> float:
         """Calculate win rate."""
+        if returns.empty:
+            return 0
         return (returns > 0).mean()
     
     def _profit_factor(self, returns: pd.Series) -> float:
         """Calculate profit factor."""
+        if returns.empty:
+            return 0
         gains = returns[returns > 0].sum()
         losses = abs(returns[returns < 0].sum())
         return gains / losses if losses != 0 else 0
     
     def _avg_win(self, returns: pd.Series) -> float:
         """Calculate average win."""
+        if returns.empty:
+            return 0
         wins = returns[returns > 0]
         return wins.mean() if len(wins) > 0 else 0
     
     def _avg_loss(self, returns: pd.Series) -> float:
         """Calculate average loss."""
+        if returns.empty:
+            return 0
         losses = returns[returns < 0]
         return losses.mean() if len(losses) > 0 else 0
     
@@ -289,13 +340,35 @@ class EnhancedMetricsCalculator:
     
     def _rolling_sharpe(self, returns: pd.Series, window: int = 252) -> pd.Series:
         """Calculate rolling Sharpe ratio."""
-        rolling_mean = returns.rolling(window).mean()
-        rolling_std = returns.rolling(window).std()
-        return (rolling_mean - self.config.risk_free_rate / self.config.periods_per_year) / rolling_std * np.sqrt(self.config.periods_per_year)
+        try:
+            rolling_mean = returns.rolling(window).mean()
+            rolling_std = returns.rolling(window).std()
+            
+            # Handle division by zero and NaN values
+            rolling_sharpe = (rolling_mean - self.config.risk_free_rate / self.config.periods_per_year) / rolling_std * np.sqrt(self.config.periods_per_year)
+            
+            # Replace infinite values with NaN
+            rolling_sharpe = rolling_sharpe.replace([np.inf, -np.inf], np.nan)
+            
+            return rolling_sharpe
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating rolling Sharpe: {e}")
+            return pd.Series(dtype=float)
     
     def _rolling_volatility(self, returns: pd.Series, window: int = 252) -> pd.Series:
         """Calculate rolling volatility."""
-        return returns.rolling(window).std() * np.sqrt(self.config.periods_per_year)
+        try:
+            rolling_vol = returns.rolling(window).std() * np.sqrt(self.config.periods_per_year)
+            
+            # Replace infinite values with NaN
+            rolling_vol = rolling_vol.replace([np.inf, -np.inf], np.nan)
+            
+            return rolling_vol
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating rolling volatility: {e}")
+            return pd.Series(dtype=float)
     
     def _calculate_regime_metrics(self, returns: pd.Series) -> Dict:
         """Calculate regime-specific performance metrics."""
@@ -304,9 +377,9 @@ class EnhancedMetricsCalculator:
             rolling_vol = returns.rolling(60).std()
             vol_median = rolling_vol.median()
             
-            # Define regimes
-            low_vol_regime = rolling_vol < vol_median * 0.8
-            high_vol_regime = rolling_vol > vol_median * 1.2
+            # Define regimes using proper boolean operations - convert to numpy arrays to avoid Series ambiguity
+            low_vol_regime = (rolling_vol < vol_median * 0.8).values
+            high_vol_regime = (rolling_vol > vol_median * 1.2).values
             normal_regime = ~(low_vol_regime | high_vol_regime)
             
             regime_metrics = {}
@@ -316,7 +389,10 @@ class EnhancedMetricsCalculator:
                 ('normal_volatility', normal_regime),
                 ('high_volatility', high_vol_regime)
             ]:
-                regime_returns = returns[regime_mask]
+                # Convert boolean array back to pandas boolean Series for indexing
+                regime_mask_series = pd.Series(regime_mask, index=returns.index)
+                regime_returns = returns[regime_mask_series]
+                
                 if len(regime_returns) > 30:  # Minimum observations
                     regime_metrics[regime_name] = {
                         'return': self._annual_return(regime_returns),
@@ -343,11 +419,21 @@ class EnhancedMetricsCalculator:
             if not pair_returns.empty:
                 # Autocorrelation analysis
                 try:
-                    autocorr_1 = pair_returns.autocorr(lag=1) if len(pair_returns) > 1 else None
-                    autocorr_5 = pair_returns.autocorr(lag=5) if len(pair_returns) > 5 else None
+                    # Use pandas autocorr method if available, otherwise calculate manually
+                    if hasattr(pair_returns, 'autocorr'):
+                        autocorr_1 = pair_returns.autocorr(lag=1) if len(pair_returns) > 1 else None
+                        autocorr_5 = pair_returns.autocorr(lag=5) if len(pair_returns) > 5 else None
+                    else:
+                        # Manual autocorrelation calculation
+                        autocorr_1 = self._manual_autocorr(pair_returns, 1) if len(pair_returns) > 1 else None
+                        autocorr_5 = self._manual_autocorr(pair_returns, 5) if len(pair_returns) > 5 else None
                     
                     # Volatility clustering
-                    vol_clustering = pair_returns.rolling(20).std().autocorr(lag=1) if len(pair_returns) > 20 else None
+                    vol_series = pair_returns.rolling(20).std()
+                    if hasattr(vol_series, 'autocorr'):
+                        vol_clustering = vol_series.autocorr(lag=1) if len(vol_series) > 20 else None
+                    else:
+                        vol_clustering = self._manual_autocorr(vol_series, 1) if len(vol_series) > 20 else None
                 except Exception as e:
                     self.logger.warning(f"Error calculating autocorrelation: {e}")
                     autocorr_1 = None
@@ -382,18 +468,14 @@ class EnhancedMetricsCalculator:
     def _max_consecutive_wins(self, returns: pd.Series) -> int:
         """Calculate maximum consecutive winning days."""
         try:
-            wins = returns > 0
+            # Convert to boolean array and handle numpy arrays properly
+            wins = (returns > 0).astype(int)  # Convert to 0/1 instead of boolean
             max_consecutive = 0
             current_consecutive = 0
             
             for win in wins:
-                # Handle both pandas Series and scalar boolean values
-                if hasattr(win, 'item'):
-                    win_bool = win.item()
-                else:
-                    win_bool = bool(win)
-                    
-                if win_bool:
+                # Simple integer comparison
+                if win == 1:
                     current_consecutive += 1
                     max_consecutive = max(max_consecutive, current_consecutive)
                 else:
@@ -408,18 +490,14 @@ class EnhancedMetricsCalculator:
     def _max_consecutive_losses(self, returns: pd.Series) -> int:
         """Calculate maximum consecutive losing days."""
         try:
-            losses = returns < 0
+            # Convert to boolean array and handle numpy arrays properly
+            losses = (returns < 0).astype(int)  # Convert to 0/1 instead of boolean
             max_consecutive = 0
             current_consecutive = 0
             
             for loss in losses:
-                # Handle both pandas Series and scalar boolean values
-                if hasattr(loss, 'item'):
-                    loss_bool = loss.item()
-                else:
-                    loss_bool = bool(loss)
-                    
-                if loss_bool:
+                # Simple integer comparison
+                if loss == 1:
                     current_consecutive += 1
                     max_consecutive = max(max_consecutive, current_consecutive)
                 else:
@@ -438,15 +516,16 @@ class EnhancedMetricsCalculator:
             rolling_max = cumulative_returns.expanding().max()
             drawdown = (cumulative_returns - rolling_max) / rolling_max
             
-            # Find drawdown periods
-            in_drawdown = drawdown < 0
+            # Find drawdown periods - convert to integer array to avoid boolean issues
+            in_drawdown = (drawdown < 0).astype(int)  # Convert to 0/1 instead of boolean
             drawdown_periods = []
             current_period_start = None
             
             for i, is_dd in enumerate(in_drawdown):
-                if is_dd and current_period_start is None:
+                # Simple integer comparison
+                if is_dd == 1 and current_period_start is None:
                     current_period_start = i
-                elif not is_dd and current_period_start is not None:
+                elif is_dd == 0 and current_period_start is not None:
                     drawdown_periods.append((current_period_start, i))
                     current_period_start = None
             
@@ -577,4 +656,37 @@ Volatility Clustering: {safe_format(metrics.get('volatility_clustering'), '.3f')
             
         except Exception as e:
             self.logger.error(f"Error generating enhanced report: {e}")
-            return f"Error generating report: {e}" 
+            return f"Error generating report: {e}"
+    
+    def _manual_autocorr(self, series: pd.Series, lag: int) -> float:
+        """Calculate autocorrelation manually."""
+        try:
+            if len(series) <= lag:
+                return None
+            
+            # Remove NaN values and convert to numpy array to avoid Series ambiguity
+            series_clean = series.dropna()
+            if len(series_clean) <= lag:
+                return None
+            
+            # Convert to numpy array to avoid Series boolean operations
+            series_array = series_clean.values
+            
+            # Calculate autocorrelation
+            mean = np.mean(series_array)
+            variance = np.var(series_array)
+            
+            if variance == 0:
+                return 0
+            
+            # Calculate autocorrelation for given lag
+            autocorr_sum = 0
+            for i in range(len(series_array) - lag):
+                autocorr_sum += (series_array[i] - mean) * (series_array[i + lag] - mean)
+            
+            autocorr = autocorr_sum / ((len(series_array) - lag) * variance)
+            return autocorr
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating manual autocorrelation: {e}")
+            return None 

@@ -1,0 +1,232 @@
+# Basic Mean Reversion Pairs Trading Engine Configuration
+
+# Data configuration
+ETF_TICKERS:
+  - "SPY"
+  - "QQQ"
+  - "IWM"
+  - "EFA"
+  - "EMB"
+  - "GLD"
+  - "SLV"
+  - "USO"
+  - "TLT"
+  - "IEF"
+  - "XOM"
+  - "CVX"
+  - "SLB"
+  - "HAL"
+  - "MPC"
+  - "VLO"
+  - "COP"
+  - "EOG"
+  - "DVN"
+  - "ET"
+  - "EPD"
+  - "OXY"
+  - "XLE"
+  - "AGG"
+  - "PPLT"
+  - "UNG"
+  - "BNO"
+  - "XLK"
+  - "SMH"
+
+START_DATE: "2018-01-01"
+END_DATE: "2024-12-31"
+use_cache: false
+force_refresh: false
+
+# Signal generation configuration
+signals:
+  lookback: 20
+  entry_threshold: 1.4
+  exit_threshold: 0.2
+  max_holding_days: 30
+  zscore_window: 20
+  entry_quantile: 0.8
+  exit_quantile: 0.6
+  allow_all_regimes: true
+  use_adaptive_thresholds: true
+  zscore_quantile_window: 60
+
+# Regime detection configuration
+regime:
+  hmm_n_components: 3
+  regime_volatility_window: 20
+  stable_regime_index: 0
+  regime_entry_only: true
+  allowed_entry_regimes: [0, 1]
+
+# Backtest configuration
+backtest:
+  initial_capital: 1000000
+  target_volatility: 0.15
+  slippage_bps: 5.0
+  commission_bps: 10.0
+  stop_loss_k: 2.0
+  zscore_entry_threshold: 1.4
+  zscore_exit_threshold: 0.2
+  max_hold_days: 20
+  target_profit_pct: 0.05
+  rebalance_freq: 21
+  max_concurrent_positions: 5
+  risk_control:
+    atr_multiplier: 2.0
+    atr_period: 14
+    max_drawdown_per_pair: 0.05
+    max_drawdown_per_trade: 0.02
+    max_pair_exposure: 0.1
+    volatility_target: 0.15
+
+# Enhanced metrics configuration
+metrics:
+  risk_free_rate: 0.02
+  confidence_level: 0.95
+  periods_per_year: 252
+  benchmark_sharpe: 1.0
+
+# Statistical thresholds for enhanced pair selection
+statistical:
+  adf_pvalue_max: 0.15
+  coint_pvalue_max: 0.15
+  r_squared_min: 0.5
+  correlation_min: 0.55
+  hurst_threshold: 0.65
+  min_observations: 252
+
+# Pair selection configuration
+PAIR_SELECTION:
+  min_correlation: 0.4
+  min_spread_stability: 0.3
+  max_zscore_volatility: 2.0
+  min_cointegration_stability: 0.2
+  correlation_window: 60
+  spread_stability_window: 60
+  stability_lookback: 20
+  min_data_points: 100
+
+# Scoring weights for pair selection
+scoring_weights:
+  cointegration: 0.3
+  hurst: 0.2
+  adf: 0.15
+  zscore_vol: 0.15
+  correlation: 0.1
+  spread_stability: 0.1
+
+# Risk management configuration
+risk_management:
+  stop_loss:
+    mode: "atr"
+    atr_lookback: 20
+    atr_multiplier: 2.0
+    fixed_multiplier: 0.02
+  
+  skew_filter:
+    enabled: true
+    lookback: 60
+    min_down_up_ratio: 0.5
+    min_sortino: 0.5
+  
+  position_sizing:
+    regime_aware: true
+    base_size: 0.1
+    regime_multipliers:
+      high_volatility: 0.5
+      low_volatility: 1.5
+      transition: 1.0
+  
+  risk_metrics:
+    risk_free_rate: 0.02
+    benchmark_sharpe: 1.0
+
+# Risk control configuration
+risk_control:
+  atr_multiplier: 2.0
+  atr_period: 14
+  max_drawdown_per_pair: 0.05
+  max_drawdown_per_trade: 0.02
+  max_pair_exposure: 0.1
+  volatility_target: 0.15
+  max_pct_portfolio: 0.10
+  max_leverage: 2.0
+  max_total_exposure: 1.5
+  max_concurrent_trades_per_pair: 2
+  min_risk_reward_ratio: 1.5
+  max_correlation_exposure: 0.3
+
+# Sector mapping
+sector_map:
+  XOM: Energy
+  CVX: Energy
+  SLB: Energy
+  HAL: Energy
+  MPC: Energy
+  VLO: Energy
+  COP: Energy
+  EOG: Energy
+  DVN: Energy
+  ET: Energy
+  EPD: Energy
+  OXY: Energy
+  XLE: Energy
+  BNO: Energy
+  USO: Energy
+  UNG: Energy
+  SPY: Other
+  QQQ: Tech
+  IWM: Other
+  EFA: Other
+  EMB: Other
+  GLD: Other
+  SLV: Other
+  TLT: Other
+  IEF: Other
+  AGG: Other
+  PPLT: Other
+  XLK: Tech
+  SMH: Tech
+
+# Pair scoring configuration
+pair_scoring:
+  weights:
+    correlation: 0.25
+    coint_p: 0.25
+    hurst: 0.25
+    zscore_vol: 0.25
+
+# Walk-forward configuration
+walkforward:
+  train_months: 24
+  test_months: 6
+  z_entry_values: [1.0, 1.5, 2.0]
+  z_exit_values: [0.5, 0.0]
+  scoring_metric: "sharpe_ratio"
+
+# Pair universes
+PAIR_UNIVERSES:
+  energy:
+    pairs:
+      - ["XOM", "CVX"]
+      - ["SLB", "HAL"]
+      - ["MPC", "VLO"]
+      - ["COP", "EOG"]
+      - ["DVN", "ET"]
+      - ["EPD", "OXY"]
+      - ["XLE", "BNO"]
+      - ["USO", "UNG"]
+  
+  tech:
+    pairs:
+      - ["QQQ", "XLK"]
+      - ["SMH", "SPY"]
+      - ["QQQ", "SPY"]
+  
+  broad_market:
+    pairs:
+      - ["SPY", "IWM"]
+      - ["EFA", "EMB"]
+      - ["GLD", "SLV"]
+      - ["TLT", "IEF"]
+      - ["AGG", "SPY"] 

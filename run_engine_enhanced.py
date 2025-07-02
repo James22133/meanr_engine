@@ -13,6 +13,7 @@ from datetime import datetime
 import os
 import sys
 from pathlib import Path
+import json
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -177,8 +178,9 @@ def main():
         for pair in selected_pairs:
             pair_data = data_loader.get_pair_data(pair)
             if pair_data is not None:
-                signals = signal_generator.generate_signals(pair_data)
-                if signals is not None:
+                # Use signal generator for signal generation
+                signals = signal_generator.generate_signals(pair_data, pair)
+                if signals is not None and not signals.empty:
                     all_signals[pair] = signals
         
         # Run enhanced backtests
@@ -187,68 +189,154 @@ def main():
         portfolio_equity = None
         all_trades = []
         
-        if args.vectorbt_only:
-            # Use only vectorbt for backtesting
-            for pair in selected_pairs:
-                if pair in all_signals:
-                    pair_data = data_loader.get_pair_data(pair)
-                    if pair_data is not None:
-                        logger.info(f"Running vectorbt backtest for {pair[0]}-{pair[1]}")
+        # By default, use vectorbt for backtesting
+        for pair in selected_pairs:
+            if pair in all_signals:
+                pair_data = data_loader.get_pair_data(pair)
+                if pair_data is not None:
+                    logger.info(f"Running vectorbt backtest for {pair[0]}-{pair[1]}")
+                    
+                    regime_series = all_regimes.get(pair, pd.Series(0, index=pair_data.index))
+                    
+                    results = vectorbt_backtest.run_vectorized_backtest(
+                        pair_data.iloc[:, 0],
+                        pair_data.iloc[:, 1],
+                        regime_series=regime_series,
+                        lookback=config['signals'].get('lookback', 20),
+                        entry_threshold=config['signals'].get('entry_threshold', 2.0),
+                        exit_threshold=config['signals'].get('exit_threshold', 0.5)
+                    )
+                    
+                    if results:
+                        backtest_results[pair] = results
+                        trade_log_file = vectorbt_backtest.save_trade_logs(results, pair, "trade_logs")
+                        if trade_log_file:
+                            logger.info(f"Saved trade logs to {trade_log_file}")
                         
-                        # Get regime series for this pair
-                        regime_series = all_regimes.get(pair, pd.Series(0, index=pair_data.index))
+                        report = vectorbt_backtest.generate_report(results, f"{pair[0]}-{pair[1]}")
+                        logger.info(report)
                         
-                        # Run vectorbt backtest
-                        results = vectorbt_backtest.run_vectorized_backtest(
-                            pair_data.iloc[:, 0],  # First asset
-                            pair_data.iloc[:, 1],  # Second asset
-                            regime_series=regime_series,
-                            lookback=config['signals'].get('lookback', 20),
-                            entry_threshold=config['signals'].get('entry_threshold', 2.0),
-                            exit_threshold=config['signals'].get('exit_threshold', 0.5)
-                        )
-                        
-                        if results:
-                            backtest_results[pair] = results
-                            
-                            # Save detailed trade logs
-                            trade_log_file = vectorbt_backtest.save_trade_logs(
-                                results, pair, "trade_logs"
+                        if 'returns' in results:
+                            enhanced_metrics_result = enhanced_metrics.calculate_pair_specific_metrics(
+                                results['returns'], results['equity_curve']
                             )
-                            if trade_log_file:
-                                logger.info(f"Saved trade logs to {trade_log_file}")
+                            enhanced_report = enhanced_metrics.generate_enhanced_report(
+                                enhanced_metrics_result, f"{pair[0]}-{pair[1]}"
+                            )
+                            logger.info(enhanced_report)
+                        
+                        if 'detailed_trades' in results and results['detailed_trades']:
+                            all_trades.extend(results['detailed_trades'])
+                        
+                        # Fix portfolio equity aggregation
+                        if portfolio_equity is None:
+                            portfolio_equity = results['equity_curve'].copy()
+                            if isinstance(portfolio_equity, pd.DataFrame):
+                                portfolio_equity = portfolio_equity.sum(axis=1)
+                        else:
+                            # Get equity curve for this pair
+                            pair_equity = results['equity_curve']
+                            if isinstance(pair_equity, pd.DataFrame):
+                                pair_equity = pair_equity.sum(axis=1)
                             
-                            # Generate vectorbt report
-                            report = vectorbt_backtest.generate_report(results, f"{pair[0]}-{pair[1]}")
-                            logger.info(report)
-                            
-                            # Calculate enhanced metrics
-                            if 'returns' in results:
-                                enhanced_metrics_result = enhanced_metrics.calculate_pair_specific_metrics(
-                                    results['returns'], results['equity_curve']
-                                )
-                                
-                                enhanced_report = enhanced_metrics.generate_enhanced_report(
-                                    enhanced_metrics_result, f"{pair[0]}-{pair[1]}"
-                                )
-                                logger.info(enhanced_report)
-                            
-                            # Aggregate trades for diagnostics
-                            if 'detailed_trades' in results and results['detailed_trades']:
-                                all_trades.extend(results['detailed_trades'])
-                            elif 'trades' in results and results['trades'] is not None:
-                                all_trades.extend(results['trades'].to_dict('records'))
-                            
-                            # Aggregate equity curves
-                            if portfolio_equity is None:
-                                portfolio_equity = results['equity_curve']
-                            else:
-                                portfolio_equity = portfolio_equity.add(results['equity_curve'], fill_value=0)
-        else:
-            # Use hybrid approach (vectorbt + traditional)
-            logger.info("Using hybrid backtesting approach...")
-            # This would combine vectorbt with traditional backtesting
-            # Implementation depends on specific requirements
+                            # Ensure both are Series with same index
+                            if isinstance(portfolio_equity, pd.Series) and isinstance(pair_equity, pd.Series):
+                                # Align indices and add
+                                aligned_equity = pair_equity.reindex(portfolio_equity.index, fill_value=0)
+                                portfolio_equity = portfolio_equity + aligned_equity
+
+        # Aggregated Analytics and Saving
+        if all_trades:
+            logger.info("Aggregating and saving backtest analytics...")
+            
+            # Calculate summary metrics
+            total_trades = len(all_trades)
+            winning_trades = sum(1 for t in all_trades if t.get('pnl', 0) > 0)
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            total_pnl = sum(t.get('pnl', 0) for t in all_trades)
+            
+            # Calculate portfolio-level metrics from VectorBT results
+            portfolio_metrics = {}
+            if portfolio_equity is not None and not portfolio_equity.empty:
+                try:
+                    # Ensure portfolio_equity is a Series
+                    if isinstance(portfolio_equity, pd.DataFrame):
+                        portfolio_equity = portfolio_equity.sum(axis=1)
+                    
+                    # Calculate returns with proper handling
+                    portfolio_returns = portfolio_equity.pct_change().fillna(0)
+                    
+                    # Remove any infinite values
+                    portfolio_returns = portfolio_returns.replace([np.inf, -np.inf], 0)
+                    
+                    if not portfolio_returns.empty and portfolio_returns.std() > 0:
+                        portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(portfolio_returns, portfolio_equity)
+                    else:
+                        logger.warning("Portfolio returns are empty or have zero volatility")
+                except Exception as e:
+                    logger.error(f"Error calculating portfolio metrics: {e}")
+                    portfolio_metrics = {}
+            
+            # Prepare analytics dictionary
+            backtest_analytics = {
+                'total_trades': total_trades,
+                'winning_trades': winning_trades,
+                'win_rate': win_rate,
+                'total_pnl': total_pnl,
+                'portfolio_metrics': portfolio_metrics,
+                'trades': all_trades,
+                'timestamp': pd.Timestamp.now().isoformat(),
+                'selected_pairs': [f"{pair[0]}-{pair[1]}" for pair in selected_pairs],
+                'config_used': {
+                    'entry_threshold': config['signals'].get('entry_threshold', 2.0),
+                    'exit_threshold': config['signals'].get('exit_threshold', 0.5),
+                    'lookback': config['signals'].get('lookback', 20),
+                    'initial_capital': config['backtest'].get('initial_capital', 1_000_000)
+                }
+            }
+
+            # Convert numpy types to native Python types for JSON serialization
+            def convert_numpy_types(obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, pd.Timestamp):
+                    return obj.isoformat()
+                elif isinstance(obj, pd.Series):
+                    return obj.tolist()
+                elif isinstance(obj, pd.DataFrame):
+                    return obj.to_dict('records')
+                elif isinstance(obj, dict):
+                    return {k: convert_numpy_types(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy_types(item) for item in obj]
+                elif hasattr(obj, 'item'):  # Handle numpy scalars
+                    return obj.item()
+                elif hasattr(obj, '__dict__'):  # Handle objects with __dict__
+                    return str(obj)
+                return obj
+
+            # Save to JSON
+            try:
+                with open('backtest_analytics.json', 'w') as f:
+                    json.dump(backtest_analytics, f, indent=4, default=convert_numpy_types)
+                logger.info("Successfully saved backtest analytics to 'backtest_analytics.json'")
+                
+                # Also save individual pair results
+                for pair, results in backtest_results.items():
+                    if 'portfolio' in results:
+                        portfolio = results['portfolio']
+                        pair_analytics = portfolio.stats()
+                        pair_filename = f"pair_results_{pair[0]}_{pair[1]}.json"
+                        with open(pair_filename, 'w') as f:
+                            json.dump(pair_analytics, f, indent=4, default=convert_numpy_types)
+                        logger.info(f"Saved {pair[0]}-{pair[1]} results to {pair_filename}")
+                        
+            except Exception as e:
+                logger.error(f"Error saving analytics to JSON: {e}")
         
         # Parameter optimization if requested
         if args.optimize:
@@ -278,18 +366,29 @@ def main():
                 logger.info("Diagnostic analysis completed")
         
         # Generate enhanced portfolio metrics
-        if portfolio_equity is not None:
+        if portfolio_equity is not None and not portfolio_equity.empty:
             logger.info("Calculating enhanced portfolio metrics...")
-            portfolio_returns = portfolio_equity.pct_change().fillna(0)
-            
-            portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(
-                portfolio_returns, portfolio_equity
-            )
-            
-            portfolio_report = enhanced_metrics.generate_enhanced_report(
-                portfolio_metrics, "PORTFOLIO"
-            )
-            logger.info(portfolio_report)
+            try:
+                # Ensure portfolio_equity is a Series
+                if isinstance(portfolio_equity, pd.DataFrame):
+                    portfolio_equity = portfolio_equity.sum(axis=1)
+                
+                portfolio_returns = portfolio_equity.pct_change().fillna(0)
+                portfolio_returns = portfolio_returns.replace([np.inf, -np.inf], 0)
+                
+                if not portfolio_returns.empty and portfolio_returns.std() > 0:
+                    portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(
+                        portfolio_returns, portfolio_equity
+                    )
+                    
+                    portfolio_report = enhanced_metrics.generate_enhanced_report(
+                        portfolio_metrics, "PORTFOLIO"
+                    )
+                    logger.info(portfolio_report)
+                else:
+                    logger.warning("Portfolio returns are empty or have zero volatility - skipping enhanced metrics")
+            except Exception as e:
+                logger.error(f"Error calculating enhanced portfolio metrics: {e}")
         
         # Generate plots if requested
         if args.save_plots:
@@ -301,22 +400,53 @@ def main():
             # Generate various plots
             for pair, results in backtest_results.items():
                 if 'equity_curve' in results and 'signals' in results:
-                    plot_generator.plot_vectorbt_analysis(
-                        results['prices'],
-                        results['signals']['entries'],
-                        results['signals']['exits'],
-                        results['equity_curve'],
-                        f"{pair[0]}-{pair[1]}",
-                        save_path=f"{plots_dir}/analysis_{pair[0]}_{pair[1]}.png"
-                    )
+                    try:
+                        plot_generator.plot_vectorbt_analysis(
+                            results['prices'],
+                            results['signals']['entries'],
+                            results['signals']['exits'],
+                            results['equity_curve'],
+                            f"{pair[0]}-{pair[1]}",
+                            save_path=f"{plots_dir}/analysis_{pair[0]}_{pair[1]}.png"
+                        )
+                        logger.info(f"Generated analysis plot for {pair[0]}-{pair[1]}")
+                    except Exception as e:
+                        logger.error(f"Error generating plot for {pair[0]}-{pair[1]}: {e}")
             
             # Portfolio plots
             if portfolio_equity is not None:
-                plot_generator.plot_equity_curves(
-                    portfolio_equity,
-                    "Portfolio",
-                    save_path=f"{plots_dir}/portfolio_equity.png"
-                )
+                try:
+                    plot_generator.plot_equity_curves(
+                        portfolio_equity,
+                        "Portfolio",
+                        save_path=f"{plots_dir}/portfolio_equity.png"
+                    )
+                    logger.info("Generated portfolio equity plot")
+                except Exception as e:
+                    logger.error(f"Error generating portfolio plot: {e}")
+            
+            # Save portfolio performance plot using VectorBT
+            if portfolio_equity is not None:
+                try:
+                    # Ensure portfolio_equity is a 1-dimensional Series
+                    if isinstance(portfolio_equity, pd.DataFrame):
+                        portfolio_equity_series = portfolio_equity.sum(axis=1)
+                    else:
+                        portfolio_equity_series = portfolio_equity
+                    
+                    # Create a simple portfolio for plotting
+                    portfolio_returns = portfolio_equity_series.pct_change().fillna(0)
+                    
+                    # Use vectorbt to create portfolio plot - use the correct method
+                    import vectorbt as vbt
+                    # Create a simple equity curve plot instead of portfolio
+                    fig = portfolio_equity_series.plot(title="Portfolio Equity Curve")
+                    fig.figure.savefig(f"{plots_dir}/portfolio_performance.png", dpi=300, bbox_inches='tight')
+                    logger.info("Generated portfolio performance plot")
+                except Exception as e:
+                    logger.error(f"Error generating VectorBT portfolio plot: {e}")
+            
+            logger.info(f"All plots saved to {plots_dir}")
         
         # Walk-forward analysis if requested
         if args.walkforward:
@@ -399,8 +529,8 @@ def _run_walkforward_analysis(data, selected_pairs, config, n_windows,
                         
                         if results and 'returns' in results:
                             returns = results['returns']
-                            if len(returns) > 0:
-                                sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
+                            if not returns.empty and returns.std() > 0:
+                                sharpe = returns.mean() / returns.std() * np.sqrt(252)
                                 total_return = (1 + returns).prod() - 1
                                 window_results.append({
                                     'pair': pair,

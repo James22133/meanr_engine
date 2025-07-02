@@ -79,8 +79,8 @@ class PairSelector:
     def _calculate_kalman_params(self, pair_data: pd.DataFrame, pair_key: str = "") -> Dict:
         """Calculate Kalman filter parameters."""
         try:
-            cache_file = os.path.join(self.config.get('data_dir', 'data'), f"kalman_{pair_key}.pkl")
-            if self.config.get('use_cache', False) and os.path.exists(cache_file) and not self.config.get('force_refresh', False):
+            cache_file = os.path.join(getattr(self.config, 'data_dir', 'data'), f"kalman_{pair_key}.pkl")
+            if getattr(self.config, 'use_cache', False) and os.path.exists(cache_file) and not getattr(self.config, 'force_refresh', False):
                 return load_from_cache(cache_file)
 
             # Initialize Kalman filter
@@ -109,7 +109,7 @@ class PairSelector:
                 'observation_matrix': kf.observation_matrices
             }
 
-            if self.config.get('use_cache', False):
+            if getattr(self.config, 'use_cache', False):
                 save_to_cache(result, cache_file)
 
             return result
@@ -137,7 +137,7 @@ class PairSelector:
     def _calculate_stability_metrics(self, spread: pd.Series) -> float:
         """Calculate stability metrics for the spread."""
         try:
-            if spread is None or len(spread) < self.config.get('pair_selection', {}).get('stability_lookback', 90):
+            if spread is None or len(spread) < getattr(self.config.pair_selection, 'stability_lookback', 90):
                 return 0.0
                 
             # Calculate rolling metrics
@@ -159,13 +159,13 @@ class PairSelector:
             if spread is None:
                 return None
 
-            cache_file = os.path.join(self.config.get('data_dir', 'data'), f"zscore_{pair_key}.pkl")
-            if self.config.get('use_cache', False) and os.path.exists(cache_file) and not self.config.get('force_refresh', False):
+            cache_file = os.path.join(getattr(self.config, 'data_dir', 'data'), f"zscore_{pair_key}.pkl")
+            if getattr(self.config, 'use_cache', False) and os.path.exists(cache_file) and not getattr(self.config, 'force_refresh', False):
                 return load_from_cache(cache_file)
 
             z = (spread - spread.mean()) / spread.std()
 
-            if self.config.get('use_cache', False):
+            if getattr(self.config, 'use_cache', False):
                 save_to_cache(z, cache_file)
 
             return z
@@ -182,14 +182,18 @@ class PairSelector:
             norm_correlation = max(0, correlation)
             norm_coint = 1 - coint_pvalue
             norm_stability = max(0, stability)
-            norm_vol = 1 - min(1, zscore_vol / self.config.get('pair_selection', {}).get('max_zscore_volatility', 1.0))
-            
-            weights = self.config.get('pair_scoring', {}).get('weights', {
-                'correlation': 0.25,
-                'coint_p': 0.25,
-                'hurst': 0.25,
-                'zscore_vol': 0.25,
-            })
+            max_zscore_volatility = getattr(self.config.pair_selection, 'max_zscore_volatility', 1.0)
+            norm_vol = 1 - min(1, zscore_vol / max_zscore_volatility)
+            weights = getattr(self.config, 'pair_scoring', None)
+            if weights and hasattr(weights, 'weights'):
+                weights = weights.weights
+            else:
+                weights = {
+                    'correlation': 0.25,
+                    'coint_p': 0.25,
+                    'hurst': 0.25,
+                    'zscore_vol': 0.25,
+                }
             corr_w = weights['correlation']
             coint_w = weights['coint_p']
             hurst_w = weights['hurst']
@@ -271,35 +275,41 @@ class PairSelector:
         self.logger.info(f"Selected {len(selected_pairs)} pairs: {selected_pairs}")
         return selected_pairs
 
-    def generate_signals(self, pair_data: pd.DataFrame) -> pd.DataFrame:
+    def generate_signals(self, pair_data: pd.DataFrame, pair_name: Tuple[str, str]) -> pd.DataFrame:
         """Generate trading signals for a pair."""
         try:
-            # Calculate spread and z-score
-            spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
-            z_score = (spread - spread.rolling(20).mean()) / spread.rolling(20).std()
+            if pair_data is None or pair_data.empty or len(pair_data.columns) < 2:
+                return pd.DataFrame()
             
-            # Get thresholds from config with fallbacks
-            entry_threshold = self.config.get('signals', {}).get('entry_threshold', 
-                                    self.config.get('backtest', {}).get('zscore_entry_threshold', 1.5))
-            exit_threshold = self.config.get('signals', {}).get('exit_threshold', 
-                                   self.config.get('backtest', {}).get('zscore_exit_threshold', 0.5))
+            asset1_col, asset2_col = pair_data.columns[0], pair_data.columns[1]
+            price1, price2 = pair_data[asset1_col], pair_data[asset2_col]
+            
+            # Calculate spread and z-score
+            spread = price1 - price2
+            lookback = 20
+            z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
+            
+            # Get thresholds from config (using dict access instead of attribute access)
+            entry_threshold = self.config.get('backtest', {}).get('zscore_entry_threshold', 1.5)
+            exit_threshold = self.config.get('backtest', {}).get('zscore_exit_threshold', 0.5)
             
             # Generate signals
-            signals = pd.DataFrame(index=pair_data.index)
-            signals['z_score'] = z_score
-            signals['entry_long'] = z_score < -entry_threshold  # Long when spread is low
-            signals['entry_short'] = z_score > entry_threshold   # Short when spread is high
-            signals['exit'] = (z_score >= -exit_threshold) & (z_score <= exit_threshold)  # Exit when mean-reverting
+            long_signals = z_score < -entry_threshold
+            short_signals = z_score > entry_threshold
+            exit_signals = abs(z_score) < exit_threshold
             
-            # Detailed logging in separate method for reuse
-            self._log_signal_stats(
-                pair_data, z_score, entry_threshold, exit_threshold, signals
-            )
+            # Create signals DataFrame
+            signals = pd.DataFrame({
+                'long': long_signals,
+                'short': short_signals,
+                'exit': exit_signals,
+                'z_score': z_score
+            }, index=pair_data.index)
             
             return signals
             
         except Exception as e:
-            self.logger.error(f"Error generating signals: {str(e)}")
+            self.logger.error(f"Error generating signals: {e}")
             return pd.DataFrame()
 
     def _log_signal_stats(

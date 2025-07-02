@@ -40,15 +40,31 @@ data:
 # Signal generation configuration
 signals:
   lookback: 20
-  entry_threshold: 2.0
-  exit_threshold: 0.5
+  entry_threshold: 1.4
+  exit_threshold: 0.2
   max_holding_days: 30
   zscore_window: 20
-  entry_quantile: 0.9
-  exit_quantile: 0.5
+  entry_quantile: 0.8
+  exit_quantile: 0.6
   allow_all_regimes: true
   use_adaptive_thresholds: true
   zscore_quantile_window: 60
+  
+  # Dynamic threshold adjustments
+  adaptive_thresholds:
+    enabled: true
+    volatility_scaling: true
+    spread_volatility_window: 60
+    volatility_multiplier: 1.5  # Scale thresholds by recent volatility
+    
+    # Market condition adjustments
+    high_vol_multiplier: 1.2   # Higher thresholds in high vol
+    low_vol_multiplier: 0.8    # Lower thresholds in low vol
+    trend_adjustment: true     # Adjust for trending markets
+    
+    # Signal confidence
+    min_signal_confidence: 0.6  # Minimum confidence for trade entry
+    kalman_filter_enabled: true # Use Kalman filter for mean estimation
 
 # Regime detection configuration
 regime:
@@ -65,15 +81,30 @@ backtest:
   slippage_bps: 5.0
   commission_bps: 10.0
   stop_loss_k: 2.0
-  zscore_entry_threshold: 1.5
-  zscore_exit_threshold: 0.5
-  max_hold_days: 15
+  zscore_entry_threshold: 1.4
+  zscore_exit_threshold: 0.2
+  max_hold_days: 20
   target_profit_pct: 0.05
   rebalance_freq: 21
   max_concurrent_positions: 5
-  regime_scaling: true
-  regime_volatility_multiplier: 1.0
-  regime_trend_multiplier: 1.0
+  risk_control:
+    atr_multiplier: 2.0
+    atr_period: 14
+    max_drawdown_per_pair: 0.05
+    max_drawdown_per_trade: 0.02
+    max_pair_exposure: 0.1
+    volatility_target: 0.15
+  
+  # Dynamic position sizing
+  volatility_targeting: true
+  target_pair_volatility: 0.20
+  position_size_method: "volatility_scaled"
+  max_position_size: 0.15
+  
+  # Risk management
+  max_drawdown_per_pair: 0.10
+  max_portfolio_drawdown: 0.20
+  correlation_threshold: 0.70
 
 # Enhanced metrics configuration
 metrics:
@@ -84,26 +115,26 @@ metrics:
 
 # Statistical thresholds for enhanced pair selection
 statistical:
-  adf_pvalue_max: 0.05
-  coint_pvalue_max: 0.05
-  r_squared_min: 0.7
-  correlation_min: 0.8
-  hurst_threshold: 0.5
+  adf_pvalue_max: 0.15
+  coint_pvalue_max: 0.15
+  r_squared_min: 0.5
+  correlation_min: 0.55
+  hurst_threshold: 0.65
   min_observations: 252
 
 # Pair selection configuration
 pair_selection:
-  min_correlation: 0.5
+  min_correlation: 0.4
   correlation_window: 60
-  min_spread_stability: 0.4
+  min_spread_stability: 0.3
   spread_stability_window: 60
-  max_zscore_volatility: 1.8
-  min_cointegration_stability: 0.3
+  max_zscore_volatility: 2.0
+  min_cointegration_stability: 0.2
   stability_lookback: 20
   min_data_points: 100
   top_n_pairs: 5
-  sector_filter_enabled: true
-  min_pair_sharpe: 0.8
+  sector_filter_enabled: false
+  min_pair_sharpe: 0.5
 
 # Scoring weights for pair selection
 scoring_weights:
@@ -261,3 +292,20 @@ MIN_PAIR_SHARPE: 0.8
 REGIME_ENTRY_ONLY: true
 ALLOWED_ENTRY_REGIMES: [0, 1]
 min_days_between_trades: 5
+
+# Regime detection and filtering
+regime_detection:
+  enabled: true
+  method: "vix_based"  # Options: vix_based, hmm, trend_filter
+  vix_threshold_high: 25.0  # High volatility regime threshold
+  vix_threshold_low: 15.0   # Low volatility regime threshold
+  
+  # Regime-specific adjustments
+  high_volatility_multiplier: 0.5  # Reduce position size in high vol
+  low_volatility_multiplier: 1.2   # Increase position size in low vol
+  trend_regime_threshold: 0.6      # Disable reversion if trend > 0.6
+  
+  # Market regime indicators
+  use_vix_filter: true
+  use_trend_filter: true
+  use_sentiment_filter: false  # Future enhancement

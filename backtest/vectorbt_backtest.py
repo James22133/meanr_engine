@@ -581,9 +581,43 @@ class VectorBTBacktest:
                 return "No results to report"
             
             portfolio = results.get('portfolio')
-            metrics = self.calculate_enhanced_metrics(
-                portfolio.returns(), portfolio.value()
-            )
+            if portfolio is None:
+                return f"No portfolio data available for {pair_name}"
+            
+            try:
+                returns = portfolio.returns()
+                equity = portfolio.value()
+                
+                if returns.empty or equity.empty:
+                    return f"No valid returns/equity data for {pair_name}"
+                
+                metrics = self.calculate_enhanced_metrics(returns, equity)
+            except Exception as e:
+                self.logger.error(f"Error calculating metrics for {pair_name}: {e}")
+                return f"Error calculating metrics for {pair_name}: {e}"
+            
+            # Helper function to safely format values
+            def safe_format(value, format_str=".2%", default="N/A"):
+                """Safely format a value, handling None, NaN, and Series."""
+                if value is None or pd.isna(value):
+                    return default
+                try:
+                    # Convert Series to scalar if needed
+                    if hasattr(value, 'item'):
+                        value = value.item()
+                    elif hasattr(value, 'iloc'):
+                        value = value.iloc[-1] if len(value) > 0 else 0
+                    
+                    if format_str == ".2%":
+                        return f"{value:.2%}"
+                    elif format_str == ".3f":
+                        return f"{value:.3f}"
+                    elif format_str == ".0f":
+                        return f"{value:.0f}"
+                    else:
+                        return str(value)
+                except (ValueError, TypeError):
+                    return default
             
             report = f"""
 {'='*80}
@@ -592,34 +626,34 @@ VECTORBT BACKTEST REPORT: {pair_name}
 
 PERFORMANCE METRICS:
 {'-'*40}
-Total Return: {metrics.get('total_return', 0):.2%}
-Annual Return: {metrics.get('annual_return', 0):.2%}
-Annual Volatility: {metrics.get('annual_volatility', 0):.2%}
-Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.3f}
-Sortino Ratio: {metrics.get('sortino_ratio', 0):.3f}
-Calmar Ratio: {metrics.get('calmar_ratio', 0):.3f}
-Max Drawdown: {metrics.get('max_drawdown', 0):.2%}
+Total Return: {safe_format(metrics.get('total_return'), '.2%')}
+Annual Return: {safe_format(metrics.get('annual_return'), '.2%')}
+Annual Volatility: {safe_format(metrics.get('annual_volatility'), '.2%')}
+Sharpe Ratio: {safe_format(metrics.get('sharpe_ratio'), '.3f')}
+Sortino Ratio: {safe_format(metrics.get('sortino_ratio'), '.3f')}
+Calmar Ratio: {safe_format(metrics.get('calmar_ratio'), '.3f')}
+Max Drawdown: {safe_format(metrics.get('max_drawdown'), '.2%')}
 
 RISK METRICS:
 {'-'*40}
-Value at Risk (95%): {metrics.get('var_95', 0):.2%}
-Conditional VaR (95%): {metrics.get('cvar_95', 0):.2%}
-Tail Ratio: {metrics.get('tail_ratio', 0):.3f}
-Downside Risk: {metrics.get('downside_risk', 0):.2%}
-Upside Risk: {metrics.get('upside_risk', 0):.2%}
+Value at Risk (95%): {safe_format(metrics.get('var_95'), '.2%')}
+Conditional VaR (95%): {safe_format(metrics.get('cvar_95'), '.2%')}
+Tail Ratio: {safe_format(metrics.get('tail_ratio'), '.3f')}
+Downside Risk: {safe_format(metrics.get('downside_risk'), '.2%')}
+Upside Risk: {safe_format(metrics.get('upside_risk'), '.2%')}
 
 TRADE STATISTICS:
 {'-'*40}
-Win Rate: {metrics.get('win_rate', 0):.2%}
-Profit Factor: {metrics.get('profit_factor', 0):.3f}
-Stability: {metrics.get('stability', 0):.3f}
+Win Rate: {safe_format(metrics.get('win_rate'), '.2%')}
+Profit Factor: {safe_format(metrics.get('profit_factor'), '.3f')}
+Stability: {safe_format(metrics.get('stability'), '.3f')}
 
 PORTFOLIO STATISTICS:
 {'-'*40}
 Total Trades: {len(portfolio.trades.records_readable)}
-Final Value: ${portfolio.value().iloc[-1]:,.2f}
-Initial Capital: ${self.config.initial_capital:,.2f}
-Total PnL: ${portfolio.value().iloc[-1] - self.config.initial_capital:,.2f}
+Final Value: {safe_format(portfolio.value().iloc[-1], '.2f')}
+Initial Capital: {safe_format(self.config.initial_capital, '.2f')}
+Total PnL: {safe_format(portfolio.value().iloc[-1] - self.config.initial_capital, '.2f')}
 
 {'='*80}
 """
