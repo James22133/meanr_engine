@@ -228,22 +228,15 @@ def main():
                         if 'detailed_trades' in results and results['detailed_trades']:
                             all_trades.extend(results['detailed_trades'])
                         
-                        # Fix portfolio equity aggregation
+                        # Aggregate portfolio equity across pairs
+                        pair_equity = results['equity_curve']
+                        if isinstance(pair_equity, pd.DataFrame):
+                            pair_equity = pair_equity.sum(axis=1)
+
                         if portfolio_equity is None:
-                            portfolio_equity = results['equity_curve'].copy()
-                            if isinstance(portfolio_equity, pd.DataFrame):
-                                portfolio_equity = portfolio_equity.sum(axis=1)
+                            portfolio_equity = pair_equity
                         else:
-                            # Get equity curve for this pair
-                            pair_equity = results['equity_curve']
-                            if isinstance(pair_equity, pd.DataFrame):
-                                pair_equity = pair_equity.sum(axis=1)
-                            
-                            # Ensure both are Series with same index
-                            if isinstance(portfolio_equity, pd.Series) and isinstance(pair_equity, pd.Series):
-                                # Align indices and add
-                                aligned_equity = pair_equity.reindex(portfolio_equity.index, fill_value=0)
-                                portfolio_equity = portfolio_equity + aligned_equity
+                            portfolio_equity = portfolio_equity.add(pair_equity, fill_value=0)
 
         # Aggregated Analytics and Saving
         if all_trades:

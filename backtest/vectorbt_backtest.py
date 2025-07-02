@@ -42,6 +42,9 @@ class VectorBTConfig:
     fees: float = 0.001  # 0.1% per trade
     slippage: float = 0.0002  # 0.02% slippage
     max_concurrent_positions: int = 5
+    target_volatility: float = 0.10  # annualized target volatility per pair
+    max_position_size: float = 0.25  # cap exposure per pair
+    min_position_size: float = 0.05  # minimum exposure per pair
     regime_scaling: bool = True
     regime_volatility_multiplier: float = 1.0
     regime_trend_multiplier: float = 1.0
@@ -158,20 +161,31 @@ class VectorBTBacktest:
         scaled_entries: pd.Series,
         vol_lookback: int = 20,
     ) -> pd.DataFrame:
-        """Calculate position sizes per trade based on volatility and config."""
+        """Calculate position sizes per trade using volatility targeting."""
         try:
             base_size = 1.0 / max(self.config.max_concurrent_positions, 1)
 
             spread = price1 - price2
-            volatility = spread.pct_change().rolling(vol_lookback).std()
-            median_vol = volatility.median()
-            if pd.isna(median_vol) or median_vol == 0:
-                vol_factor = pd.Series(1.0, index=spread.index)
+            spread_ret = spread.pct_change()
+            vol = spread_ret.rolling(vol_lookback).std() * np.sqrt(252)
+
+            if self.config.target_volatility:
+                # Scale position so that pair volatility approximates target
+                vol_factor = (
+                    self.config.target_volatility / vol.replace(0, np.nan)
+                ).clip(0.5, 2.0).fillna(1.0)
             else:
-                vol_factor = (median_vol / volatility).clip(0.5, 2.0).fillna(1.0)
+                median_vol = vol.median()
+                if pd.isna(median_vol) or median_vol == 0:
+                    vol_factor = pd.Series(1.0, index=spread.index)
+                else:
+                    vol_factor = (median_vol / vol).clip(0.5, 2.0).fillna(1.0)
 
             size_series = base_size * vol_factor * scaled_entries.abs()
-            size_series = size_series.clip(upper=1.0)
+            size_series = size_series.clip(
+                lower=self.config.min_position_size,
+                upper=min(self.config.max_position_size, 1.0),
+            )
 
             return pd.DataFrame({"asset1": size_series, "asset2": size_series})
         except Exception as e:
