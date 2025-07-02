@@ -51,7 +51,6 @@ def load_config(config_path: str):
         return None
 
 def main():
-    print("RUNNING LATEST VERSION of run_engine_enhanced.py")
     """Main function for enhanced mean reversion pairs trading engine."""
     parser = argparse.ArgumentParser(description='Enhanced Mean Reversion Pairs Trading Engine')
     parser.add_argument('--config', type=str, default='config.yaml', help='Configuration file path')
@@ -63,9 +62,10 @@ def main():
     parser.add_argument('--walkforward-windows', type=int, default=5, help='Number of walk-forward windows')
     
     args = parser.parse_args()
-    
+
     # Setup logging
     logger = setup_logging()
+    logger.info("RUNNING LATEST VERSION of run_engine_enhanced.py")
     logger.info("Starting Enhanced Mean Reversion Pairs Trading Engine")
     
     # Load configuration
