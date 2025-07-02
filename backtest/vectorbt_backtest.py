@@ -151,6 +151,33 @@ class VectorBTBacktest:
             self.logger.error(f"Error applying regime scaling: {e}")
             return signals
 
+    def _calculate_position_size_df(
+        self,
+        price1: pd.Series,
+        price2: pd.Series,
+        scaled_entries: pd.Series,
+        vol_lookback: int = 20,
+    ) -> pd.DataFrame:
+        """Calculate position sizes per trade based on volatility and config."""
+        try:
+            base_size = 1.0 / max(self.config.max_concurrent_positions, 1)
+
+            spread = price1 - price2
+            volatility = spread.pct_change().rolling(vol_lookback).std()
+            median_vol = volatility.median()
+            if pd.isna(median_vol) or median_vol == 0:
+                vol_factor = pd.Series(1.0, index=spread.index)
+            else:
+                vol_factor = (median_vol / volatility).clip(0.5, 2.0).fillna(1.0)
+
+            size_series = base_size * vol_factor * scaled_entries.abs()
+            size_series = size_series.clip(upper=1.0)
+
+            return pd.DataFrame({"asset1": size_series, "asset2": size_series})
+        except Exception as e:
+            self.logger.error(f"Error calculating position size: {e}")
+            return pd.DataFrame(0.0, index=price1.index, columns=["asset1", "asset2"])
+
     def _apply_atr_stop_loss(
         self,
         prices: pd.DataFrame,
@@ -203,10 +230,6 @@ class VectorBTBacktest:
             # Generate signals
             entries, exits = self.generate_signals_vectorized(price1, price2, **signal_params)
             
-            # Apply regime scaling if available
-            if regime_series is not None:
-                entries = self.apply_regime_scaling(entries, regime_series)
-            
             # Create spread-based portfolio for pairs trading
             # Calculate the spread (price1 - price2)
             spread = price1 - price2
@@ -227,11 +250,17 @@ class VectorBTBacktest:
             # Create a single-asset portfolio based on the spread
             # Construct price and signal frames with consistent shapes
             prices = pd.DataFrame({"asset1": price1, "asset2": price2})
-            entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
+            # Apply regime scaling to determine position weights while keeping
+            # entry direction intact for vectorbt
+            if regime_series is not None:
+                scaled_entries = self.apply_regime_scaling(entries, regime_series)
+            else:
+                scaled_entries = entries
+
+            entry_signals = pd.DataFrame({"asset1": np.sign(scaled_entries), "asset2": np.sign(scaled_entries)})
             exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
 
-
-            size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
+            size_df = self._calculate_position_size_df(price1, price2, scaled_entries)
 
             portfolio = vbt.Portfolio.from_signals(
                 close=prices,
@@ -526,12 +555,14 @@ class VectorBTBacktest:
                     price1, price2, lookback, entry_threshold, exit_threshold
                 )
                 if regime_series is not None:
-                    entries = self.apply_regime_scaling(entries, regime_series)
+                    scaled_entries = self.apply_regime_scaling(entries, regime_series)
+                else:
+                    scaled_entries = entries
 
                 prices = pd.DataFrame({"asset1": price1, "asset2": price2})
-                entry_signals = pd.DataFrame({"asset1": entries, "asset2": entries})
+                entry_signals = pd.DataFrame({"asset1": np.sign(scaled_entries), "asset2": np.sign(scaled_entries)})
                 exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
-                size_df = pd.DataFrame(0.25, index=prices.index, columns=prices.columns)
+                size_df = self._calculate_position_size_df(price1, price2, scaled_entries)
 
                 portfolio = vbt.Portfolio.from_signals(
                     close=prices,
