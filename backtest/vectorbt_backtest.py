@@ -173,7 +173,9 @@ class VectorBTBacktest:
             size_series = base_size * vol_factor * scaled_entries.abs()
             size_series = size_series.clip(upper=1.0)
 
-            return pd.DataFrame({"asset1": size_series, "asset2": size_series})
+            size_df = pd.DataFrame({"asset1": size_series, "asset2": size_series})
+            size_df = size_df.reindex(price1.index).fillna(0.0)
+            return size_df
         except Exception as e:
             self.logger.error(f"Error calculating position size: {e}")
             return pd.DataFrame(0.0, index=price1.index, columns=["asset1", "asset2"])
