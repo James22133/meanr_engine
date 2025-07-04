@@ -489,29 +489,69 @@ class VectorBTBacktest:
                                  equity_curve: pd.Series) -> Dict:
         """Calculate enhanced performance metrics using numpy/pandas/scipy."""
         try:
+            if returns.empty or equity_curve.empty:
+                return {}
+            
+            # Ensure we're working with clean data
+            returns_clean = returns.dropna()
+            equity_clean = equity_curve.dropna()
+            
+            if returns_clean.empty or equity_clean.empty:
+                return {}
+            
             # Basic metrics
-            total_return = (1 + returns).prod() - 1
-            years = len(returns) / 252
+            total_return = (1 + returns_clean).prod() - 1
+            years = len(returns_clean) / 252
             annual_return = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
-            annual_volatility = returns.std() * np.sqrt(252)
-            sharpe_ratio = returns.mean() / returns.std() * np.sqrt(252) if returns.std() != 0 else 0
-            downside_returns = returns[returns < 0]
-            sortino_ratio = returns.mean() / downside_returns.std() * np.sqrt(252) if downside_returns.std() != 0 else 0
-            running_max = (1 + returns).cumprod().expanding().max()
-            drawdown = (1 + returns).cumprod() / running_max - 1
+            annual_volatility = returns_clean.std() * np.sqrt(252)
+            
+            # Risk-adjusted returns
+            if returns_clean.std() != 0:
+                sharpe_ratio = returns_clean.mean() / returns_clean.std() * np.sqrt(252)
+            else:
+                sharpe_ratio = 0
+                
+            downside_returns = returns_clean[returns_clean < 0]
+            if len(downside_returns) > 0 and downside_returns.std() != 0:
+                sortino_ratio = returns_clean.mean() / downside_returns.std() * np.sqrt(252)
+            else:
+                sortino_ratio = 0
+                
+            # Drawdown calculation
+            running_max = (1 + returns_clean).cumprod().expanding().max()
+            drawdown = (1 + returns_clean).cumprod() / running_max - 1
             max_drawdown = drawdown.min()
-            calmar_ratio = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0
+            
+            if max_drawdown != 0:
+                calmar_ratio = annual_return / abs(max_drawdown)
+            else:
+                calmar_ratio = 0
+                
             # Risk metrics
-            var_95 = np.percentile(returns, 5)
-            cvar_95 = returns[returns <= var_95].mean() if len(returns[returns <= var_95]) > 0 else 0
-            tail_ratio = abs(np.percentile(returns, 95) / np.percentile(returns, 5)) if np.percentile(returns, 5) != 0 else 0
+            var_95 = np.percentile(returns_clean, 5)
+            returns_below_var = returns_clean[returns_clean <= var_95]
+            cvar_95 = returns_below_var.mean() if len(returns_below_var) > 0 else 0
+            
+            percentile_5 = np.percentile(returns_clean, 5)
+            percentile_95 = np.percentile(returns_clean, 95)
+            tail_ratio = abs(percentile_95 / percentile_5) if percentile_5 != 0 else 0
+            
             # Additional metrics
-            stability = 1 - returns.std() / returns.mean() if returns.mean() != 0 else 0
+            if returns_clean.mean() != 0:
+                stability = 1 - returns_clean.std() / returns_clean.mean()
+            else:
+                stability = 0
+                
             downside_risk = downside_returns.std() * np.sqrt(252) if len(downside_returns) > 0 else 0
-            upside_returns = returns[returns > 0]
+            upside_returns = returns_clean[returns_clean > 0]
             upside_risk = upside_returns.std() * np.sqrt(252) if len(upside_returns) > 0 else 0
-            win_rate = (returns > 0).mean()
-            profit_factor = returns[returns > 0].sum() / abs(returns[returns < 0].sum()) if abs(returns[returns < 0].sum()) > 0 else 0
+            
+            win_rate = (returns_clean > 0).mean()
+            
+            gains = returns_clean[returns_clean > 0].sum()
+            losses = abs(returns_clean[returns_clean < 0].sum())
+            profit_factor = gains / losses if losses > 0 else 0
+            
             return {
                 'total_return': total_return,
                 'annual_return': annual_return,

@@ -309,3 +309,37 @@ regime_detection:
   use_vix_filter: true
   use_trend_filter: true
   use_sentiment_filter: false  # Future enhancement
+
+# Enhanced regime filtering configuration
+regime_filtering:
+  enabled: true
+  
+  # VIX-based volatility filtering
+  use_vix_filter: true
+  vix_threshold_high: 25.0
+  vix_threshold_low: 15.0
+  vix_lookback: 5  # Days to average VIX
+  
+  # Trend-based filtering
+  use_trend_filter: true
+  trend_window: 60
+  trend_slope_threshold: 0.6
+  trend_ma_window: 20
+  
+  # Rolling Sharpe ratio filtering
+  use_rolling_sharpe_filter: true
+  rolling_sharpe_window: 60
+  rolling_sharpe_min: 0.2
+  rolling_sharpe_lookback: 252  # 1 year
+  
+  # Market condition filters
+  use_market_regime_filter: true
+  market_regime_window: 20
+  min_regime_stability: 0.7
+  
+  # Position sizing based on regime
+  regime_position_sizing:
+    high_volatility_multiplier: 0.5
+    low_volatility_multiplier: 1.5
+    trending_multiplier: 0.3
+    mean_reverting_multiplier: 1.0

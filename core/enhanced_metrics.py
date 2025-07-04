@@ -164,9 +164,9 @@ class EnhancedMetricsCalculator:
                 'alpha': alpha,
                 
                 # Rolling metrics
-                'rolling_sharpe_mean': rolling_sharpe.mean() if not rolling_sharpe.empty else None,
-                'rolling_sharpe_std': rolling_sharpe.std() if not rolling_sharpe.empty else None,
-                'rolling_volatility_mean': rolling_volatility.mean() if not rolling_volatility.empty else None,
+                'rolling_sharpe_mean': rolling_sharpe.mean().item() if not rolling_sharpe.empty else 0,
+                'rolling_sharpe_std': rolling_sharpe.std().item() if not rolling_sharpe.empty else 0,
+                'rolling_volatility_mean': rolling_volatility.mean().item() if not rolling_volatility.empty else 0,
                 
                 # Regime metrics
                 'regime_metrics': regime_metrics,

@@ -23,6 +23,7 @@ from core.pair_selection import PairSelector
 from core.enhanced_pair_selection import EnhancedPairSelector, StatisticalThresholds
 from core.pair_selection import PairSelector as SignalGenerator
 from regime.regime_detection import RegimeDetector
+from core.regime_filters import RegimeFilter, RegimeFilterConfig
 from backtest.vectorbt_backtest import VectorBTBacktest, VectorBTConfig
 from core.enhanced_metrics import EnhancedMetricsCalculator, EnhancedMetricsConfig
 from core.diagnostics import TradeDiagnostics
@@ -108,6 +109,28 @@ def main():
         # Regime detector
         regime_detector = RegimeDetector(config['regime'])
         
+        # Initialize regime filters
+        regime_filter_config = RegimeFilterConfig(
+            use_vix_filter=config.get('regime_filtering', {}).get('use_vix_filter', True),
+            vix_threshold_high=config.get('regime_filtering', {}).get('vix_threshold_high', 25.0),
+            vix_threshold_low=config.get('regime_filtering', {}).get('vix_threshold_low', 15.0),
+            vix_lookback=config.get('regime_filtering', {}).get('vix_lookback', 5),
+            use_trend_filter=config.get('regime_filtering', {}).get('use_trend_filter', True),
+            trend_window=config.get('regime_filtering', {}).get('trend_window', 60),
+            trend_slope_threshold=config.get('regime_filtering', {}).get('trend_slope_threshold', 0.6),
+            trend_ma_window=config.get('regime_filtering', {}).get('trend_ma_window', 20),
+            use_rolling_sharpe_filter=config.get('regime_filtering', {}).get('use_rolling_sharpe_filter', True),
+            rolling_sharpe_window=config.get('regime_filtering', {}).get('rolling_sharpe_window', 60),
+            rolling_sharpe_min=config.get('regime_filtering', {}).get('rolling_sharpe_min', 0.2),
+            rolling_sharpe_lookback=config.get('regime_filtering', {}).get('rolling_sharpe_lookback', 252),
+            use_market_regime_filter=config.get('regime_filtering', {}).get('use_market_regime_filter', True),
+            market_regime_window=config.get('regime_filtering', {}).get('market_regime_window', 20),
+            min_regime_stability=config.get('regime_filtering', {}).get('min_regime_stability', 0.7)
+        )
+        
+        regime_filter = RegimeFilter(regime_filter_config)
+        logger.info("Initialized regime filters")
+        
         # VectorBT backtest engine
         vectorbt_config = VectorBTConfig(
             initial_capital=config['backtest'].get('initial_capital', 1_000_000),
@@ -171,17 +194,53 @@ def main():
         selected_pairs = enhanced_pair_selector.select_pairs_enhanced(pair_metrics)
         logger.info(f"Selected {len(selected_pairs)} pairs for trading")
         
-        # Generate signals
-        logger.info("Generating trading signals...")
+        # Generate signals with regime filtering
+        logger.info("Generating trading signals with regime filtering...")
         all_signals = {}
+        regime_filtered_signals = {}
         
         for pair in selected_pairs:
             pair_data = data_loader.get_pair_data(pair)
             if pair_data is not None:
+                # Calculate spread for regime filtering
+                spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
+                
                 # Use signal generator for signal generation
                 signals = signal_generator.generate_signals(pair_data, pair)
                 if signals is not None and not signals.empty:
                     all_signals[pair] = signals
+                    
+                    # Apply regime filters to signals
+                    filtered_signals = signals.copy()
+                    regime_info_list = []
+                    
+                    for date in signals.index:
+                        if date in spread.index:
+                            should_trade, regime_info = regime_filter.should_trade(spread, date)
+                            regime_info_list.append(regime_info)
+                            
+                            if not should_trade:
+                                # Zero out signals for unfavorable regimes
+                                filtered_signals.loc[date, 'position'] = 0
+                                filtered_signals.loc[date, 'entry_signal'] = 0
+                                filtered_signals.loc[date, 'exit_signal'] = 0
+                            else:
+                                # Apply position size multiplier
+                                multiplier = regime_info['multiplier']
+                                if 'position' in filtered_signals.columns:
+                                    filtered_signals.loc[date, 'position'] *= multiplier
+                    
+                    regime_filtered_signals[pair] = filtered_signals
+                    
+                    # Log regime filtering summary
+                    if regime_info_list:
+                        favorable_days = sum(1 for info in regime_info_list if info['should_trade'])
+                        total_days = len(regime_info_list)
+                        filter_rate = (total_days - favorable_days) / total_days if total_days > 0 else 0
+                        logger.info(f"Regime filtering for {pair[0]}-{pair[1]}: {filter_rate:.1%} of signals filtered out")
+        
+        # Use regime-filtered signals for backtesting
+        signals_to_use = regime_filtered_signals if regime_filtered_signals else all_signals
         
         # Run enhanced backtests
         logger.info("Running enhanced backtests...")
@@ -191,7 +250,7 @@ def main():
         
         # By default, use vectorbt for backtesting
         for pair in selected_pairs:
-            if pair in all_signals:
+            if pair in signals_to_use:
                 pair_data = data_loader.get_pair_data(pair)
                 if pair_data is not None:
                     logger.info(f"Running vectorbt backtest for {pair[0]}-{pair[1]}")
@@ -287,6 +346,8 @@ def main():
                 'trades': all_trades,
                 'timestamp': pd.Timestamp.now().isoformat(),
                 'selected_pairs': [f"{pair[0]}-{pair[1]}" for pair in selected_pairs],
+                'regime_filtering_enabled': config.get('regime_filtering', {}).get('enabled', True),
+                'regime_filter_config': config.get('regime_filtering', {}),
                 'config_used': {
                     'entry_threshold': config['signals'].get('entry_threshold', 2.0),
                     'exit_threshold': config['signals'].get('exit_threshold', 0.5),
@@ -561,6 +622,9 @@ def _run_walkforward_analysis(data, selected_pairs, config, n_windows,
             walkforward_results['avg_sharpe'] = np.mean([w['avg_sharpe'] for w in walkforward_results['windows']])
             walkforward_results['avg_return'] = np.mean([w['avg_return'] for w in walkforward_results['windows']])
             
+            
+
+
             # Calculate consistency (percentage of windows with positive Sharpe)
             positive_sharpe_windows = sum(1 for w in walkforward_results['windows'] if w['avg_sharpe'] > 0)
             walkforward_results['consistency'] = positive_sharpe_windows / len(walkforward_results['windows'])
