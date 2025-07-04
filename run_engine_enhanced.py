@@ -245,6 +245,7 @@ def main():
         # Run enhanced backtests
         logger.info("Running enhanced backtests...")
         backtest_results = {}
+        portfolio_returns = None
         portfolio_equity = None
         all_trades = []
         
@@ -287,22 +288,19 @@ def main():
                         if 'detailed_trades' in results and results['detailed_trades']:
                             all_trades.extend(results['detailed_trades'])
                         
-                        # Fix portfolio equity aggregation
-                        if portfolio_equity is None:
-                            portfolio_equity = results['equity_curve'].copy()
-                            if isinstance(portfolio_equity, pd.DataFrame):
-                                portfolio_equity = portfolio_equity.sum(axis=1)
-                        else:
-                            # Get equity curve for this pair
-                            pair_equity = results['equity_curve']
-                            if isinstance(pair_equity, pd.DataFrame):
-                                pair_equity = pair_equity.sum(axis=1)
-                            
-                            # Ensure both are Series with same index
-                            if isinstance(portfolio_equity, pd.Series) and isinstance(pair_equity, pd.Series):
-                                # Align indices and add
-                                aligned_equity = pair_equity.reindex(portfolio_equity.index, fill_value=0)
-                                portfolio_equity = portfolio_equity + aligned_equity
+                        # Aggregate portfolio returns instead of equity
+                        if 'returns' in results:
+                            pair_returns = results['returns'].fillna(0)
+                            if portfolio_returns is None:
+                                portfolio_returns = pair_returns.copy()
+                            else:
+                                aligned_returns = pair_returns.reindex(portfolio_returns.index, fill_value=0)
+                                portfolio_returns = portfolio_returns.add(aligned_returns, fill_value=0)
+
+        # Convert aggregated returns to equity curve
+        if portfolio_returns is not None:
+            portfolio_returns = portfolio_returns.fillna(0)
+            portfolio_equity = vectorbt_config.initial_capital * (1 + portfolio_returns).cumprod()
 
         # Aggregated Analytics and Saving
         if all_trades:
@@ -316,22 +314,11 @@ def main():
             
             # Calculate portfolio-level metrics from VectorBT results
             portfolio_metrics = {}
-            if portfolio_equity is not None and not portfolio_equity.empty:
+            if portfolio_returns is not None and not portfolio_returns.empty:
                 try:
-                    # Ensure portfolio_equity is a Series
-                    if isinstance(portfolio_equity, pd.DataFrame):
-                        portfolio_equity = portfolio_equity.sum(axis=1)
-                    
-                    # Calculate returns with proper handling
-                    portfolio_returns = portfolio_equity.pct_change().fillna(0)
-                    
-                    # Remove any infinite values
-                    portfolio_returns = portfolio_returns.replace([np.inf, -np.inf], 0)
-                    
-                    if not portfolio_returns.empty and portfolio_returns.std() > 0:
-                        portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(portfolio_returns, portfolio_equity)
-                    else:
-                        logger.warning("Portfolio returns are empty or have zero volatility")
+                    portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(
+                        portfolio_returns, portfolio_equity
+                    )
                 except Exception as e:
                     logger.error(f"Error calculating portfolio metrics: {e}")
                     portfolio_metrics = {}
@@ -427,27 +414,17 @@ def main():
                 logger.info("Diagnostic analysis completed")
         
         # Generate enhanced portfolio metrics
-        if portfolio_equity is not None and not portfolio_equity.empty:
+        if portfolio_returns is not None and not portfolio_returns.empty:
             logger.info("Calculating enhanced portfolio metrics...")
             try:
-                # Ensure portfolio_equity is a Series
-                if isinstance(portfolio_equity, pd.DataFrame):
-                    portfolio_equity = portfolio_equity.sum(axis=1)
-                
-                portfolio_returns = portfolio_equity.pct_change().fillna(0)
-                portfolio_returns = portfolio_returns.replace([np.inf, -np.inf], 0)
-                
-                if not portfolio_returns.empty and portfolio_returns.std() > 0:
-                    portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(
-                        portfolio_returns, portfolio_equity
-                    )
-                    
-                    portfolio_report = enhanced_metrics.generate_enhanced_report(
-                        portfolio_metrics, "PORTFOLIO"
-                    )
-                    logger.info(portfolio_report)
-                else:
-                    logger.warning("Portfolio returns are empty or have zero volatility - skipping enhanced metrics")
+                portfolio_metrics = enhanced_metrics.calculate_comprehensive_metrics(
+                    portfolio_returns, portfolio_equity
+                )
+
+                portfolio_report = enhanced_metrics.generate_enhanced_report(
+                    portfolio_metrics, "PORTFOLIO"
+                )
+                logger.info(portfolio_report)
             except Exception as e:
                 logger.error(f"Error calculating enhanced portfolio metrics: {e}")
         

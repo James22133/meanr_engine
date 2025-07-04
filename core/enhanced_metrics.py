@@ -184,134 +184,156 @@ class EnhancedMetricsCalculator:
     
     def _cumulative_return(self, returns: pd.Series) -> float:
         """Calculate cumulative return."""
-        return (1 + returns).prod() - 1
+        clean = returns.dropna()
+        if clean.empty:
+            return 0.0
+        return (1 + clean).prod() - 1
     
     def _annual_return(self, returns: pd.Series) -> float:
         """Calculate annualized return."""
-        total_return = self._cumulative_return(returns)
-        years = len(returns) / self.config.periods_per_year
+        clean = returns.dropna()
+        total_return = self._cumulative_return(clean)
+        years = len(clean) / self.config.periods_per_year
         return (1 + total_return) ** (1 / years) - 1
     
     def _annual_volatility(self, returns: pd.Series) -> float:
         """Calculate annualized volatility."""
-        return returns.std() * np.sqrt(self.config.periods_per_year)
+        clean = returns.dropna()
+        if clean.empty:
+            return 0.0
+        return clean.std() * np.sqrt(self.config.periods_per_year)
     
     def _sharpe_ratio(self, returns: pd.Series) -> float:
         """Calculate Sharpe ratio."""
-        if returns.empty or returns.std() == 0:
+        clean = returns.dropna()
+        if clean.empty or clean.std() == 0:
             return 0
-        excess_returns = returns - self.config.risk_free_rate / self.config.periods_per_year
-        return excess_returns.mean() / returns.std() * np.sqrt(self.config.periods_per_year)
+        excess_returns = clean - self.config.risk_free_rate / self.config.periods_per_year
+        return excess_returns.mean() / clean.std() * np.sqrt(self.config.periods_per_year)
     
     def _sortino_ratio(self, returns: pd.Series) -> float:
         """Calculate Sortino ratio."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        excess_returns = returns - self.config.risk_free_rate / self.config.periods_per_year
-        downside_returns = returns[returns < 0]
+        excess_returns = clean - self.config.risk_free_rate / self.config.periods_per_year
+        downside_returns = clean[clean < 0]
         if len(downside_returns) == 0 or downside_returns.std() == 0:
             return 0
         return excess_returns.mean() / downside_returns.std() * np.sqrt(self.config.periods_per_year)
     
     def _calmar_ratio(self, returns: pd.Series) -> float:
         """Calculate Calmar ratio."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        annual_return = self._annual_return(returns)
-        max_dd = self._max_drawdown(returns)
+        annual_return = self._annual_return(clean)
+        max_dd = self._max_drawdown(clean)
         if max_dd == 0:
             return 0
         return annual_return / abs(max_dd)
     
     def _max_drawdown(self, returns: pd.Series) -> float:
         """Calculate maximum drawdown."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        cumulative = (1 + returns).cumprod()
+        cumulative = (1 + clean).cumprod()
         running_max = cumulative.expanding().max()
         drawdown = (cumulative - running_max) / running_max
         return drawdown.min()
     
     def _avg_drawdown(self, returns: pd.Series) -> float:
         """Calculate average drawdown."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        cumulative = (1 + returns).cumprod()
+        cumulative = (1 + clean).cumprod()
         running_max = cumulative.expanding().max()
         drawdown = (cumulative - running_max) / running_max
         return drawdown[drawdown < 0].mean()
     
     def _value_at_risk(self, returns: pd.Series, cutoff: float) -> float:
         """Calculate Value at Risk."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        return np.percentile(returns, cutoff * 100)
+        return np.percentile(clean, cutoff * 100)
     
     def _conditional_value_at_risk(self, returns: pd.Series, cutoff: float) -> float:
         """Calculate Conditional Value at Risk (Expected Shortfall)."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        var = self._value_at_risk(returns, cutoff)
-        return returns[returns <= var].mean()
+        var = self._value_at_risk(clean, cutoff)
+        return clean[clean <= var].mean()
     
     def _tail_ratio(self, returns: pd.Series) -> float:
         """Calculate tail ratio."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        left_tail = np.percentile(returns, 5)
-        right_tail = np.percentile(returns, 95)
+        left_tail = np.percentile(clean, 5)
+        right_tail = np.percentile(clean, 95)
         return abs(right_tail / left_tail) if left_tail != 0 else 0
     
     def _stability_of_timeseries(self, returns: pd.Series) -> float:
         """Calculate stability of timeseries."""
-        if returns.empty or returns.mean() == 0:
+        clean = returns.dropna()
+        if clean.empty or clean.mean() == 0:
             return 0
-        return 1 - returns.std() / returns.mean()
+        return 1 - clean.std() / clean.mean()
     
     def _downside_risk(self, returns: pd.Series) -> float:
         """Calculate downside risk."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        downside_returns = returns[returns < 0]
+        downside_returns = clean[clean < 0]
         if len(downside_returns) == 0:
             return 0
         return downside_returns.std() * np.sqrt(self.config.periods_per_year)
     
     def _upside_risk(self, returns: pd.Series) -> float:
         """Calculate upside risk."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        upside_returns = returns[returns > 0]
+        upside_returns = clean[clean > 0]
         if len(upside_returns) == 0:
             return 0
         return upside_returns.std() * np.sqrt(self.config.periods_per_year)
     
     def _win_rate(self, returns: pd.Series) -> float:
         """Calculate win rate."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        return (returns > 0).mean()
+        return (clean > 0).mean()
     
     def _profit_factor(self, returns: pd.Series) -> float:
         """Calculate profit factor."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        gains = returns[returns > 0].sum()
-        losses = abs(returns[returns < 0].sum())
+        gains = clean[clean > 0].sum()
+        losses = abs(clean[clean < 0].sum())
         return gains / losses if losses != 0 else 0
     
     def _avg_win(self, returns: pd.Series) -> float:
         """Calculate average win."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        wins = returns[returns > 0]
+        wins = clean[clean > 0]
         return wins.mean() if len(wins) > 0 else 0
     
     def _avg_loss(self, returns: pd.Series) -> float:
         """Calculate average loss."""
-        if returns.empty:
+        clean = returns.dropna()
+        if clean.empty:
             return 0
-        losses = returns[returns < 0]
+        losses = clean[clean < 0]
         return losses.mean() if len(losses) > 0 else 0
     
     def _information_ratio(self, returns: pd.Series, benchmark: pd.Series) -> float:
