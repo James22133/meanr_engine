@@ -41,9 +41,21 @@ class DataLoader:
             
             # Get closing prices
             close_prices = data['Close']
-            
+
             # Store OHLC data for ATR calculation
             self.ohlc_data = data
+
+            # Liquidity filter based on average dollar volume
+            avg_dollar_vol = (data['Close'] * data['Volume']).mean()
+            liquid_tickers = avg_dollar_vol[avg_dollar_vol >= 5_000_000].index.tolist()
+            removed = set(tickers) - set(liquid_tickers)
+            if removed:
+                self.logger.info(f"Removing illiquid tickers (<$5M volume): {sorted(removed)}")
+            close_prices = close_prices[liquid_tickers]
+            if isinstance(self.ohlc_data.columns, pd.MultiIndex):
+                self.ohlc_data = self.ohlc_data.loc[:, pd.IndexSlice[:, liquid_tickers]]
+            else:
+                self.ohlc_data = self.ohlc_data[liquid_tickers]
             
             # Log data shape and date range
             self.logger.info(f"Data shape: {close_prices.shape}")

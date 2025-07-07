@@ -135,7 +135,7 @@ def main():
         vectorbt_config = VectorBTConfig(
             initial_capital=config['backtest'].get('initial_capital', 1_000_000),
             fees=config['backtest'].get('commission_bps', 1.0) / 10000,
-            slippage=config['backtest'].get('slippage_bps', 2.0) / 10000,
+            slippage=config['backtest'].get('slippage_bps', 15.0) / 10000,
             max_concurrent_positions=config['backtest'].get('max_concurrent_positions', 5),
             regime_scaling=config['backtest'].get('regime_scaling', True),
             regime_volatility_multiplier=config['backtest'].get('regime_volatility_multiplier', 1.0),

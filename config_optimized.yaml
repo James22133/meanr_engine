@@ -64,7 +64,7 @@ regime:
 backtest:
   initial_capital: 1000000
   target_volatility: 0.20  # Increased for higher returns
-  slippage_bps: 5.0
+  slippage_bps: 15.0
   commission_bps: 10.0
   stop_loss_k: 2.5  # Increased for more room
   zscore_entry_threshold: 1.6  # Aligned with signals.entry_threshold
