@@ -106,7 +106,18 @@ class WalkForwardValidator:
         }
 
 
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+def walk_forward_backtest(
+    price_data: pd.DataFrame,
+    selected_pairs: List[Tuple[str, str]],
+    config: Dict,
+    pair_selector,
+    backtester,
+    output_path: str = "walkforward_stats.csv",
+) -> pd.DataFrame:
+#conflict resolved here 
 def walk_forward_backtest(price_data: pd.DataFrame, selected_pairs: List[Tuple[str, str]], config: Dict, pair_selector, backtester) -> pd.DataFrame:
+#conflict resolved here main
     """Simple rolling walk-forward analysis with health checks."""
     results = []
     train_size = 180
@@ -148,6 +159,31 @@ def walk_forward_backtest(price_data: pd.DataFrame, selected_pairs: List[Tuple[s
                                 window_stats.append({'pair': pair, 'sharpe': sharpe, 'return': total_ret})
         if window_stats:
             df = pd.DataFrame(window_stats)
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+            avg_sharpe = df['sharpe'].mean()
+            avg_return = df['return'].mean()
+
+            portfolio_eq = (1 + df['return']).cumprod()
+            rolling_sharpe = (
+                portfolio_eq.pct_change().rolling(30).mean()
+                / portfolio_eq.pct_change().rolling(30).std()
+            ).iloc[-1] * np.sqrt(252)
+            max_dd = (portfolio_eq / portfolio_eq.cummax() - 1).min()
+
+            results.append({
+                'start': train.index[0],
+                'end': test.index[-1],
+                'avg_sharpe': avg_sharpe,
+                'avg_return': avg_return,
+                'rolling_sharpe': rolling_sharpe,
+                'max_drawdown': max_dd,
+                'pairs': len(window_stats)
+            })
+
+    if results:
+        pd.DataFrame(results).to_csv(output_path, index=False)
+
+#conflict resolved here 
             results.append({
                 'start': train.index[0],
                 'end': test.index[-1],
@@ -157,4 +193,5 @@ def walk_forward_backtest(price_data: pd.DataFrame, selected_pairs: List[Tuple[s
             })
     if results:
         pd.DataFrame(results).to_csv('walkforward_stats.csv', index=False)
+#conflict resolved here  main
     return pd.DataFrame(results)

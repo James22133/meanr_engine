@@ -15,12 +15,14 @@ A quantitative trading strategy implementing advanced pairs trading strategies u
 - **Risk Management**: Volatility targeting, position sizing, and comprehensive risk controls
 - **Behavioral Execution**: Trades are filtered to the late-day window to mimic retail execution
 - **Pair Health Logging**: Daily ADF and Hurst metrics are exported for monitoring
+
 - **Stress Filters**: Signal generation halts when VIX spikes or market returns crash
 
 ### Backtesting & Analysis
 - **VectorBT Integration**: High-performance vectorized backtesting with detailed trade analysis
 - **Performance Metrics**: Comprehensive risk-adjusted returns, drawdown analysis, and statistical validation
 - **Walk-Forward Analysis**: Out-of-sample validation and strategy robustness testing
+- **Walk-Forward CSV Output**: Rolling statistics are saved to `walkforward_stats.csv`
 - **Parameter Optimization**: Grid search and optimization for strategy parameters
 
 ### Data & Infrastructure

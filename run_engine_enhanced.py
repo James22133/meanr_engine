@@ -63,7 +63,14 @@ def main():
     parser.add_argument('--statistical-report', action='store_true', help='Generate detailed statistical report')
     parser.add_argument('--walkforward', action='store_true', help='Run walk-forward analysis')
     parser.add_argument('--walkforward-windows', type=int, default=5, help='Number of walk-forward windows')
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+    parser.add_argument('--walkforward-output', type=str, default='walkforward_stats.csv', help='Output CSV for walk-forward stats')
+
+    parser.add_argument('--behavioral-execution', action='store_true', help='Enable behavioral execution timing')
+    parser.add_argument('--override-execution-window', action='store_true', help='Allow trading outside behavioral window')
+#conflict resolved here 
     
+#conflict resolved here  main
     parser.add_argument("--include-unhealthy", action="store_true", help="Use pairs that fail health criteria")
     args = parser.parse_args()
 
@@ -79,6 +86,14 @@ def main():
         return
     if args.include_unhealthy:
         config.setdefault("backtest", {})["include_unhealthy_pairs"] = True
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+
+    if args.behavioral_execution:
+        config.setdefault("backtest", {})["behavioral_execution"] = True
+    if args.override_execution_window:
+        config.setdefault("backtest", {})["behavioral_execution"] = False
+#conflict resolved here 
+#conflict resolved here  main
     
     try:
         # Initialize components
@@ -220,7 +235,10 @@ def main():
                 spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
                 health_df = pair_monitor.evaluate(spread)
                 pair_health_status[pair] = health_df
+#conflict resolved here wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+#conflict resolved here 
 # conflict markers removed here  f3usdw-codex/modify-backtest-engine-with-slippage-and-filters
+#conflict resolved here > main
                 if data_loader.ohlc_data is not None and pair[0] in data_loader.ohlc_data['Close'] and pair[1] in data_loader.ohlc_data['Close']:
                     adv1 = (data_loader.ohlc_data['Close'][pair[0]] * data_loader.ohlc_data['Volume'][pair[0]]).rolling(30).mean().iloc[-1]
                     adv2 = (data_loader.ohlc_data['Close'][pair[1]] * data_loader.ohlc_data['Volume'][pair[1]]).rolling(30).mean().iloc[-1]
@@ -229,25 +247,43 @@ def main():
                     adv = float('nan')
                 if not health_df.dropna().empty:
                     last = health_df.dropna().iloc[-1]
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+                    pair_monitor.log_pair_health(
+                        f"{pair[0]}-{pair[1]}",
+                        last['adf_pvalue'],
+                        last['hurst'],
+                        adv,
+                        bool(last['healthy']),
+                        vol_z=last.get('vol_zscore', np.nan),
+                        spread_std=last.get('spread_std', np.nan),
+                        unstable=bool(last.get('unstable_cointegration', False)),
+                        excessive_vol=bool(last.get('excessive_volatility', False)),
+                    )
+#conflict resolved here 
                     pair_monitor.log_pair_health(f"{pair[0]}-{pair[1]}", last['adf_pvalue'], last['hurst'], adv, bool(last['healthy']))
-# conflict markers removed here  main
+#conflict resolved here  main
 
                 # Use signal generator for signal generation
                 signals = signal_generator.generate_signals(
                     pair_data,
                     pair,
                     regime_filter.vix_data if hasattr(regime_filter, "vix_data") and regime_filter.vix_data is not None else pd.Series(0, index=pair_data.index),
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+#conflict resolved here 
 # conflict markers removed here  f3usdw-codex/modify-backtest-engine-with-slippage-and-filters
+#conflict resolved here main
                     spy_series,
                     health_df,
                 )
                 if config['backtest'].get('behavioral_execution', False):
                     exec_times = pair_data.index.to_series().apply(lambda d: datetime.combine(d, time(15, 50)))
                     signals['entries'] = apply_behavioral_execution_filter(signals['entries'], exec_times)
-=======
+#conflict resolved here wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+#conflict resolved here 
                     health_df,
                 )
 # conflict markers removed here  main
+#conflict resolved here main
                 if signals is not None and not signals.empty:
                     all_signals[pair] = signals
                     
@@ -299,10 +335,23 @@ def main():
                     
                     regime_series = all_regimes.get(pair, pd.Series(0, index=pair_data.index))
                     
+                    vol1 = None
+                    vol2 = None
+                    if data_loader.ohlc_data is not None:
+                        try:
+                            vol1 = data_loader.ohlc_data['Volume'][pair[0]]
+                            vol2 = data_loader.ohlc_data['Volume'][pair[1]]
+                        except Exception:
+                            vol1 = vol2 = None
+
                     results = vectorbt_backtest.run_vectorized_backtest(
                         pair_data.iloc[:, 0],
                         pair_data.iloc[:, 1],
                         regime_series=regime_series,
+                        vix_series=regime_filter.vix_data if hasattr(regime_filter, 'vix_data') else None,
+                        spy_series=spy_series,
+                        volume1=vol1,
+                        volume2=vol2,
                         lookback=config['signals'].get('lookback', 20),
                         entry_threshold=config['signals'].get('entry_threshold', 2.0),
                         exit_threshold=config['signals'].get('exit_threshold', 0.5)
@@ -536,6 +585,9 @@ def main():
                 config,
                 enhanced_pair_selector,
                 vectorbt_backtest,
+#conflict resolved here wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+                output_path=args.walkforward_output,
+#conflict resolved here  main
             )
             
             # Log walk-forward results

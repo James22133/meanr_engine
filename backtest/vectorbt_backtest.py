@@ -241,16 +241,46 @@ class VectorBTBacktest:
             self.logger.error(f"Error applying ATR stop loss: {e}")
             return exits
 
+#conflict resolved here wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+    def execute_signals(
+        self,
+        returns: pd.Series,
+        vix: Optional[pd.Series] = None,
+        spy_ret_5d: Optional[pd.Series] = None,
+    ) -> pd.Series:
+        """Apply execution timing penalty only during stress periods."""
+        if not self.config.execution_timing:
+            return returns
+
+        if vix is None:
+            vix = pd.Series(0, index=returns.index)
+        if spy_ret_5d is None:
+            spy_ret_5d = pd.Series(0, index=returns.index)
+
+        stress_mask = (vix > 25) | (spy_ret_5d < -0.02)
+        adjusted = returns.copy()
+        adjusted[stress_mask] = adjusted[stress_mask] / self.config.execution_penalty_factor
+        return adjusted
+#conflict resolved here 
     def execute_signals(self, returns: pd.Series) -> pd.Series:
         """Apply execution timing penalty if enabled."""
         if self.config.execution_timing:
             self.logger.info("Applying execution timing penalty factor")
             return returns / self.config.execution_penalty_factor
         return returns
+#conflict resolved here  main
     
-    def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
-                               regime_series: Optional[pd.Series] = None,
-                               **signal_params) -> Dict:
+    def run_vectorized_backtest(
+        self,
+        price1: pd.Series,
+        price2: pd.Series,
+        regime_series: Optional[pd.Series] = None,
+        vix_series: Optional[pd.Series] = None,
+        spy_series: Optional[pd.Series] = None,
+        volume1: Optional[pd.Series] = None,
+        volume2: Optional[pd.Series] = None,
+        **signal_params,
+    ) -> Dict:
         """Run vectorized backtest using vectorbt with detailed trade logging."""
         try:
             # Generate signals
@@ -288,6 +318,16 @@ class VectorBTBacktest:
 
             size_df = self._calculate_position_size_df(price1, price2, scaled_entries)
 
+            # Dynamic slippage adjustment based on dollar volume if provided
+            dyn_slippage = self.config.slippage
+            if volume1 is not None and volume2 is not None:
+                dollar_vol1 = (price1 * volume1).rolling(30).mean().iloc[-1]
+                dollar_vol2 = (price2 * volume2).rolling(30).mean().iloc[-1]
+                avg_dv = np.nanmean([dollar_vol1, dollar_vol2])
+                if not np.isnan(avg_dv) and avg_dv > 0:
+                    factor = min(1.5, max(0.5, 5_000_000 / avg_dv))
+                    dyn_slippage = self.config.slippage * factor
+
             portfolio = vbt.Portfolio.from_signals(
                 close=prices,
                 entries=entry_signals,
@@ -296,7 +336,7 @@ class VectorBTBacktest:
                 direction="both",
                 init_cash=self.config.initial_capital,
                 fees=self.config.fees,
-                slippage=self.config.slippage,
+                slippage=dyn_slippage,
                 freq="1D",
                 accumulate=False,
                 upon_long_conflict="ignore",
@@ -317,7 +357,13 @@ class VectorBTBacktest:
                 )
             
             # Extract results
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
+            vix = vix_series.reindex(portfolio.returns().index) if vix_series is not None else None
+            spy_ret = spy_series.pct_change(5).reindex(portfolio.returns().index) if spy_series is not None else None
+            adj_returns = self.execute_signals(portfolio.returns(), vix, spy_ret)
+#conflict resolved here 
             adj_returns = self.execute_signals(portfolio.returns())
+#conflict resolved here  main
             results = {
                 'portfolio': portfolio,
                 'equity_curve': self.config.initial_capital * (1 + adj_returns).cumprod(),
