@@ -40,7 +40,8 @@ class VectorBTConfig:
     """Configuration for vectorbt backtesting."""
     initial_capital: float = 1_000_000
     fees: float = 0.001  # 0.1% per trade
-    slippage: float = 0.0002  # 0.02% slippage
+    # Slippage per trade side (0.15% results in ~0.3% round trip)
+    slippage: float = 0.0015
     max_concurrent_positions: int = 5
     regime_scaling: bool = True
     regime_volatility_multiplier: float = 1.0
@@ -48,6 +49,8 @@ class VectorBTConfig:
     max_holding_days: int = 30
     atr_stop_loss_mult: Optional[float] = None
     atr_lookback: int = 14
+    execution_timing: bool = False
+    execution_penalty_factor: float = 1.05
 
 class VectorBTBacktest:
     """High-performance vectorbt-based backtesting engine."""
@@ -98,11 +101,22 @@ class VectorBTBacktest:
             # Calculate spread and z-score
             spread = price1 - price2
             z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
+
+            # Rolling ADF test on 30-day window to ensure ongoing cointegration
+            adf_window = 30
+            rolling_adf = spread.rolling(adf_window).apply(
+                lambda x: adfuller(x)[1] if x.notna().sum() == adf_window else np.nan,
+                raw=False
+            )
             
             # Generate entry signals - vectorbt expects 1 for long, -1 for short, 0 for no position
             entries = pd.Series(0, index=price1.index)
             entries[z_score < -entry_threshold] = 1   # Long when z-score is low (spread is low)
             entries[z_score > entry_threshold] = -1   # Short when z-score is high (spread is high)
+
+            # Cancel entries if recent ADF test fails (p-value > 0.05)
+            invalid_coint = rolling_adf > 0.05
+            entries[invalid_coint] = 0
             
             # Generate exit signals - vectorbt expects True for exit, False for no exit
             exits = pd.Series(False, index=price1.index)
@@ -111,9 +125,12 @@ class VectorBTBacktest:
             # Debug logging
             long_signals = (entries == 1).sum()
             short_signals = (entries == -1).sum()
+            invalid_days = invalid_coint.sum()
             exit_signals = exits.sum()
             
-            self.logger.info(f"VectorBT signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
+            self.logger.info(
+                f"VectorBT signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}, Invalid: {invalid_days}"
+            )
             self.logger.info(f"Z-score range: {z_score.min():.3f} to {z_score.max():.3f}")
             
             return entries, exits
@@ -223,10 +240,38 @@ class VectorBTBacktest:
         except Exception as e:
             self.logger.error(f"Error applying ATR stop loss: {e}")
             return exits
+
+    def execute_signals(
+        self,
+        returns: pd.Series,
+        vix: Optional[pd.Series] = None,
+        spy_ret_5d: Optional[pd.Series] = None,
+    ) -> pd.Series:
+        """Apply execution timing penalty only during stress periods."""
+        if not self.config.execution_timing:
+            return returns
+
+        if vix is None:
+            vix = pd.Series(0, index=returns.index)
+        if spy_ret_5d is None:
+            spy_ret_5d = pd.Series(0, index=returns.index)
+
+        stress_mask = (vix > 25) | (spy_ret_5d < -0.02)
+        adjusted = returns.copy()
+        adjusted[stress_mask] = adjusted[stress_mask] / self.config.execution_penalty_factor
+        return adjusted
     
-    def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
-                               regime_series: Optional[pd.Series] = None,
-                               **signal_params) -> Dict:
+    def run_vectorized_backtest(
+        self,
+        price1: pd.Series,
+        price2: pd.Series,
+        regime_series: Optional[pd.Series] = None,
+        vix_series: Optional[pd.Series] = None,
+        spy_series: Optional[pd.Series] = None,
+        volume1: Optional[pd.Series] = None,
+        volume2: Optional[pd.Series] = None,
+        **signal_params,
+    ) -> Dict:
         """Run vectorized backtest using vectorbt with detailed trade logging."""
         try:
             # Generate signals
@@ -264,6 +309,16 @@ class VectorBTBacktest:
 
             size_df = self._calculate_position_size_df(price1, price2, scaled_entries)
 
+            # Dynamic slippage adjustment based on dollar volume if provided
+            dyn_slippage = self.config.slippage
+            if volume1 is not None and volume2 is not None:
+                dollar_vol1 = (price1 * volume1).rolling(30).mean().iloc[-1]
+                dollar_vol2 = (price2 * volume2).rolling(30).mean().iloc[-1]
+                avg_dv = np.nanmean([dollar_vol1, dollar_vol2])
+                if not np.isnan(avg_dv) and avg_dv > 0:
+                    factor = min(1.5, max(0.5, 5_000_000 / avg_dv))
+                    dyn_slippage = self.config.slippage * factor
+
             portfolio = vbt.Portfolio.from_signals(
                 close=prices,
                 entries=entry_signals,
@@ -272,7 +327,7 @@ class VectorBTBacktest:
                 direction="both",
                 init_cash=self.config.initial_capital,
                 fees=self.config.fees,
-                slippage=self.config.slippage,
+                slippage=dyn_slippage,
                 freq="1D",
                 accumulate=False,
                 upon_long_conflict="ignore",
@@ -293,10 +348,13 @@ class VectorBTBacktest:
                 )
             
             # Extract results
+            vix = vix_series.reindex(portfolio.returns().index) if vix_series is not None else None
+            spy_ret = spy_series.pct_change(5).reindex(portfolio.returns().index) if spy_series is not None else None
+            adj_returns = self.execute_signals(portfolio.returns(), vix, spy_ret)
             results = {
                 'portfolio': portfolio,
-                'equity_curve': portfolio.value(),
-                'returns': portfolio.returns(),
+                'equity_curve': self.config.initial_capital * (1 + adj_returns).cumprod(),
+                'returns': adj_returns,
                 'trades': trade_records,
                 'detailed_trades': detailed_trades,
                 'signals': {
@@ -658,8 +716,8 @@ class VectorBTBacktest:
                 return f"No portfolio data available for {pair_name}"
             
             try:
-                returns = portfolio.returns()
-                equity = portfolio.value()
+                returns = results.get('returns', portfolio.returns())
+                equity = results.get('equity_curve', portfolio.value())
                 
                 if returns.empty or equity.empty:
                     return f"No valid returns/equity data for {pair_name}"

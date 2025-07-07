@@ -15,6 +15,14 @@ from dataclasses import dataclass
 import statsmodels.api as sm
 from collections import defaultdict
 
+
+def hurst(ts: np.ndarray) -> float:
+    """Compute Hurst exponent for a time series."""
+    lags = range(2, 100)
+    tau = [np.var(np.subtract(ts[lag:], ts[:-lag])) for lag in lags]
+    poly = np.polyfit(np.log(lags), np.log(tau), 1)
+    return poly[0] / 2.0
+
 @dataclass
 class StatisticalThresholds:
     """Statistical thresholds for pair selection."""
@@ -22,7 +30,7 @@ class StatisticalThresholds:
     coint_pvalue_max: float = 0.05  # Maximum p-value for cointegration test
     r_squared_min: float = 0.7  # Minimum R-squared for linear relationship
     correlation_min: float = 0.8  # Minimum correlation coefficient
-    hurst_threshold: float = 0.5  # Maximum Hurst exponent for mean reversion
+    hurst_threshold: float = 0.65  # Maximum Hurst exponent for mean reversion
     min_observations: int = 252  # Minimum number of observations
     max_volatility_spread: float = 2.0  # Maximum volatility spread ratio (new)
     max_sector_pairs: int = 3  # Maximum pairs per sector (new)
@@ -241,6 +249,10 @@ class EnhancedPairSelector:
             
             spread = price1 - price2
             spread_returns = spread.pct_change().dropna()
+
+            # Hurst exponent on recent 30-day spread
+            spread_30 = spread.dropna().tail(30)
+            hurst_30 = hurst(spread_30.values) if len(spread_30) >= 30 else np.nan
             
             lookback = 20
             z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
@@ -259,12 +271,16 @@ class EnhancedPairSelector:
             observations = coint_results.get('observations', 0)
 
             meets_criteria = (
-                is_cointegrated and
-                r_squared >= self.statistical_thresholds.r_squared_min and
-                abs(correlation) >= self.statistical_thresholds.correlation_min and
-                hurst <= self.statistical_thresholds.hurst_threshold and
-                observations >= self.statistical_thresholds.min_observations and
-                self.check_volatility_spread_risk(vol1, vol2, vol_spread)
+                is_cointegrated
+                and r_squared >= self.statistical_thresholds.r_squared_min
+                and abs(correlation) >= self.statistical_thresholds.correlation_min
+                and hurst <= self.statistical_thresholds.hurst_threshold
+                and (
+                    np.isnan(hurst_30)
+                    or hurst_30 <= self.statistical_thresholds.hurst_threshold
+                )
+                and observations >= self.statistical_thresholds.min_observations
+                and self.check_volatility_spread_risk(vol1, vol2, vol_spread)
             )
             
             return {
@@ -276,6 +292,7 @@ class EnhancedPairSelector:
                 'r_squared': r_squared,
                 'correlation': correlation,
                 'hurst_exponent': hurst,
+                'hurst_30': hurst_30,
                 'heteroscedasticity_pvalue': coint_results.get('heteroscedasticity_pvalue', 1.0),
                 'volatility_asset1': vol1,
                 'volatility_asset2': vol2,

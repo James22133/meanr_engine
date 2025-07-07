@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import logging
 from dateutil.relativedelta import relativedelta
+from .pair_monitor import PairHealthMonitor
 
 
 class WalkForwardValidator:
@@ -103,3 +104,78 @@ class WalkForwardValidator:
             'sharpe_ratio': sharpe,
             'max_drawdown': drawdown,
         }
+
+
+def walk_forward_backtest(
+    price_data: pd.DataFrame,
+    selected_pairs: List[Tuple[str, str]],
+    config: Dict,
+    pair_selector,
+    backtester,
+    output_path: str = "walkforward_stats.csv",
+) -> pd.DataFrame:
+    """Simple rolling walk-forward analysis with health checks."""
+    results = []
+    train_size = 180
+    test_size = 60
+    monitor = PairHealthMonitor()
+    for start in range(0, len(price_data) - train_size - test_size, test_size):
+        train = price_data.iloc[start:start + train_size]
+        test = price_data.iloc[start + train_size:start + train_size + test_size]
+        pair_metrics = {}
+        for pair in selected_pairs:
+            if pair[0] in train.columns and pair[1] in train.columns:
+                pair_df = train[[pair[0], pair[1]]].dropna()
+                if len(pair_df) >= 50:
+                    m = pair_selector.calculate_pair_metrics_enhanced(pair_df)
+                    if m and m.get('meets_criteria', False):
+                        pair_metrics[pair] = m
+        window_pairs = pair_selector.select_pairs_enhanced(pair_metrics)
+        window_stats = []
+        for pair in window_pairs:
+            if pair[0] in test.columns and pair[1] in test.columns:
+                pair_df = test[[pair[0], pair[1]]].dropna()
+                if len(pair_df) >= 50:
+                    spread = pair_df.iloc[:, 0] - pair_df.iloc[:, 1]
+                    health = monitor.evaluate(spread).dropna()
+                    if not health.empty:
+                        last = health.iloc[-1]
+                        if last['healthy']:
+                            res = backtester.run_vectorized_backtest(
+                                pair_df.iloc[:, 0],
+                                pair_df.iloc[:, 1],
+                                lookback=config['signals'].get('lookback', 20),
+                                entry_threshold=config['signals'].get('entry_threshold', 2.0),
+                                exit_threshold=config['signals'].get('exit_threshold', 0.5),
+                            )
+                            if res and 'returns' in res:
+                                ret = res['returns']
+                                sharpe = ret.mean() / ret.std() * np.sqrt(252) if ret.std() > 0 else 0
+                                total_ret = (1 + ret).prod() - 1
+                                window_stats.append({'pair': pair, 'sharpe': sharpe, 'return': total_ret})
+        if window_stats:
+            df = pd.DataFrame(window_stats)
+            avg_sharpe = df['sharpe'].mean()
+            avg_return = df['return'].mean()
+
+            portfolio_eq = (1 + df['return']).cumprod()
+            rolling_sharpe = (
+                portfolio_eq.pct_change().rolling(30).mean()
+                / portfolio_eq.pct_change().rolling(30).std()
+            ).iloc[-1] * np.sqrt(252)
+            max_dd = (portfolio_eq / portfolio_eq.cummax() - 1).min()
+
+            results.append({
+                'start': train.index[0],
+                'end': test.index[-1],
+                'avg_sharpe': avg_sharpe,
+                'avg_return': avg_return,
+                'rolling_sharpe': rolling_sharpe,
+                'max_drawdown': max_dd,
+                'pairs': len(window_stats)
+            })
+
+    if results:
+        pd.DataFrame(results).to_csv(output_path, index=False)
+
+    return pd.DataFrame(results)
