@@ -70,6 +70,8 @@ backtest:
   target_profit_pct: 0.05
   rebalance_freq: 21
   max_concurrent_positions: 5
+  execution_timing: true
+  execution_penalty_factor: 1.05
   regime_scaling: true
   regime_volatility_multiplier: 1.0
   regime_trend_multiplier: 1.0
@@ -87,7 +89,7 @@ statistical:
   coint_pvalue_max: 0.10  # Relaxed from 0.05
   r_squared_min: 0.5  # Relaxed from 0.7
   correlation_min: 0.6  # Relaxed from 0.8
-  hurst_threshold: 0.7  # Relaxed from 0.5 (allows more trending pairs)
+  hurst_threshold: 0.65  # Maximum Hurst exponent for mean reversion
   min_observations: 252
 
 # Pair selection configuration

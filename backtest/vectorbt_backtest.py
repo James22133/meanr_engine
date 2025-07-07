@@ -49,6 +49,8 @@ class VectorBTConfig:
     max_holding_days: int = 30
     atr_stop_loss_mult: Optional[float] = None
     atr_lookback: int = 14
+    execution_timing: bool = False
+    execution_penalty_factor: float = 1.05
 
 class VectorBTBacktest:
     """High-performance vectorbt-based backtesting engine."""
@@ -238,6 +240,13 @@ class VectorBTBacktest:
         except Exception as e:
             self.logger.error(f"Error applying ATR stop loss: {e}")
             return exits
+
+    def execute_signals(self, returns: pd.Series) -> pd.Series:
+        """Apply execution timing penalty if enabled."""
+        if self.config.execution_timing:
+            self.logger.info("Applying execution timing penalty factor")
+            return returns / self.config.execution_penalty_factor
+        return returns
     
     def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
                                regime_series: Optional[pd.Series] = None,
@@ -308,10 +317,11 @@ class VectorBTBacktest:
                 )
             
             # Extract results
+            adj_returns = self.execute_signals(portfolio.returns())
             results = {
                 'portfolio': portfolio,
-                'equity_curve': portfolio.value(),
-                'returns': portfolio.returns(),
+                'equity_curve': self.config.initial_capital * (1 + adj_returns).cumprod(),
+                'returns': adj_returns,
                 'trades': trade_records,
                 'detailed_trades': detailed_trades,
                 'signals': {
@@ -673,8 +683,8 @@ class VectorBTBacktest:
                 return f"No portfolio data available for {pair_name}"
             
             try:
-                returns = portfolio.returns()
-                equity = portfolio.value()
+                returns = results.get('returns', portfolio.returns())
+                equity = results.get('equity_curve', portfolio.value())
                 
                 if returns.empty or equity.empty:
                     return f"No valid returns/equity data for {pair_name}"

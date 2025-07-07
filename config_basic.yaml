@@ -71,6 +71,8 @@ backtest:
   target_profit_pct: 0.05
   rebalance_freq: 21
   max_concurrent_positions: 5
+  execution_timing: true
+  execution_penalty_factor: 1.05
   risk_control:
     atr_multiplier: 2.0
     atr_period: 14
