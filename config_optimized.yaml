@@ -75,9 +75,12 @@ backtest:
   max_concurrent_positions: 6  # Increased for more diversification
   execution_timing: true
   execution_penalty_factor: 1.05
+# conflict markers removed here  f3usdw-codex/modify-backtest-engine-with-slippage-and-filters
   behavioral_execution: true
   include_unhealthy_pairs: false
   stress_filtering: true
+=======
+# conflict markers removed here  main
   regime_scaling: true
   regime_volatility_multiplier: 1.2  # More aggressive in volatile regimes
   regime_trend_multiplier: 1.1

@@ -220,6 +220,7 @@ def main():
                 spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
                 health_df = pair_monitor.evaluate(spread)
                 pair_health_status[pair] = health_df
+# conflict markers removed here  f3usdw-codex/modify-backtest-engine-with-slippage-and-filters
                 if data_loader.ohlc_data is not None and pair[0] in data_loader.ohlc_data['Close'] and pair[1] in data_loader.ohlc_data['Close']:
                     adv1 = (data_loader.ohlc_data['Close'][pair[0]] * data_loader.ohlc_data['Volume'][pair[0]]).rolling(30).mean().iloc[-1]
                     adv2 = (data_loader.ohlc_data['Close'][pair[1]] * data_loader.ohlc_data['Volume'][pair[1]]).rolling(30).mean().iloc[-1]
@@ -229,18 +230,24 @@ def main():
                 if not health_df.dropna().empty:
                     last = health_df.dropna().iloc[-1]
                     pair_monitor.log_pair_health(f"{pair[0]}-{pair[1]}", last['adf_pvalue'], last['hurst'], adv, bool(last['healthy']))
+# conflict markers removed here  main
 
                 # Use signal generator for signal generation
                 signals = signal_generator.generate_signals(
                     pair_data,
                     pair,
                     regime_filter.vix_data if hasattr(regime_filter, "vix_data") and regime_filter.vix_data is not None else pd.Series(0, index=pair_data.index),
+# conflict markers removed here  f3usdw-codex/modify-backtest-engine-with-slippage-and-filters
                     spy_series,
                     health_df,
                 )
                 if config['backtest'].get('behavioral_execution', False):
                     exec_times = pair_data.index.to_series().apply(lambda d: datetime.combine(d, time(15, 50)))
                     signals['entries'] = apply_behavioral_execution_filter(signals['entries'], exec_times)
+=======
+                    health_df,
+                )
+# conflict markers removed here  main
                 if signals is not None and not signals.empty:
                     all_signals[pair] = signals
                     
