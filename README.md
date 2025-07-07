@@ -13,6 +13,9 @@ A quantitative trading strategy implementing advanced pairs trading strategies u
 - **Dynamic Spread Modeling**: Kalman filtering for adaptive hedge ratios and spread estimation
 - **Regime Detection**: Hidden Markov Models (HMM) for market regime identification and adaptive strategy parameters
 - **Risk Management**: Volatility targeting, position sizing, and comprehensive risk controls
+- **Behavioral Execution**: Trades are filtered to the late-day window to mimic retail execution
+- **Pair Health Logging**: Daily ADF and Hurst metrics are exported for monitoring
+- **Stress Filters**: Signal generation halts when VIX spikes or market returns crash
 
 ### Backtesting & Analysis
 - **VectorBT Integration**: High-performance vectorized backtesting with detailed trade analysis

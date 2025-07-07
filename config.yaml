@@ -89,6 +89,11 @@ backtest:
   max_concurrent_positions: 5
   execution_timing: true
   execution_penalty_factor: 1.05
+# conflict markers removed here 
+  behavioral_execution: true
+  include_unhealthy_pairs: false
+  stress_filtering: true
+# conflict markers removed here 
   risk_control:
     atr_multiplier: 2.0
     atr_period: 14
