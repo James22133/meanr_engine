@@ -19,9 +19,9 @@ import json
 sys.path.append(str(Path(__file__).parent))
 
 from core.data_loader import DataLoader
-from core.pair_selection import PairSelector
 from core.enhanced_pair_selection import EnhancedPairSelector, StatisticalThresholds
-from core.pair_selection import PairSelector as SignalGenerator
+from core.signal_generation import SignalGenerator
+from core.pair_monitor import PairHealthMonitor
 from regime.regime_detection import RegimeDetector
 from core.regime_filters import RegimeFilter, RegimeFilterConfig
 from backtest.vectorbt_backtest import VectorBTBacktest, VectorBTConfig
@@ -105,6 +105,7 @@ def main():
         
         # Signal generator
         signal_generator = SignalGenerator(config)
+        pair_monitor = PairHealthMonitor()
         
         # Regime detector
         regime_detector = RegimeDetector(config['regime'])
@@ -135,11 +136,13 @@ def main():
         vectorbt_config = VectorBTConfig(
             initial_capital=config['backtest'].get('initial_capital', 1_000_000),
             fees=config['backtest'].get('commission_bps', 1.0) / 10000,
-            slippage=config['backtest'].get('slippage_bps', 2.0) / 10000,
+            slippage=config['backtest'].get('slippage_bps', 15.0) / 10000,
             max_concurrent_positions=config['backtest'].get('max_concurrent_positions', 5),
             regime_scaling=config['backtest'].get('regime_scaling', True),
             regime_volatility_multiplier=config['backtest'].get('regime_volatility_multiplier', 1.0),
-            regime_trend_multiplier=config['backtest'].get('regime_trend_multiplier', 1.0)
+            regime_trend_multiplier=config['backtest'].get('regime_trend_multiplier', 1.0),
+            execution_timing=config['backtest'].get('execution_timing', False),
+            execution_penalty_factor=config['backtest'].get('execution_penalty_factor', 1.05)
         )
         
         vectorbt_backtest = VectorBTBacktest(vectorbt_config)
@@ -198,15 +201,23 @@ def main():
         logger.info("Generating trading signals with regime filtering...")
         all_signals = {}
         regime_filtered_signals = {}
+        pair_health_status = {}
         
         for pair in selected_pairs:
             pair_data = data_loader.get_pair_data(pair)
             if pair_data is not None:
                 # Calculate spread for regime filtering
                 spread = pair_data.iloc[:, 0] - pair_data.iloc[:, 1]
-                
+                health_df = pair_monitor.evaluate(spread)
+                pair_health_status[pair] = health_df
+
                 # Use signal generator for signal generation
-                signals = signal_generator.generate_signals(pair_data, pair)
+                signals = signal_generator.generate_signals(
+                    pair_data,
+                    pair,
+                    regime_filter.vix_data if hasattr(regime_filter, "vix_data") and regime_filter.vix_data is not None else pd.Series(0, index=pair_data.index),
+                    health_df,
+                )
                 if signals is not None and not signals.empty:
                     all_signals[pair] = signals
                     

@@ -40,7 +40,8 @@ class VectorBTConfig:
     """Configuration for vectorbt backtesting."""
     initial_capital: float = 1_000_000
     fees: float = 0.001  # 0.1% per trade
-    slippage: float = 0.0002  # 0.02% slippage
+    # Slippage per trade side (0.15% results in ~0.3% round trip)
+    slippage: float = 0.0015
     max_concurrent_positions: int = 5
     regime_scaling: bool = True
     regime_volatility_multiplier: float = 1.0
@@ -48,6 +49,8 @@ class VectorBTConfig:
     max_holding_days: int = 30
     atr_stop_loss_mult: Optional[float] = None
     atr_lookback: int = 14
+    execution_timing: bool = False
+    execution_penalty_factor: float = 1.05
 
 class VectorBTBacktest:
     """High-performance vectorbt-based backtesting engine."""
@@ -98,11 +101,22 @@ class VectorBTBacktest:
             # Calculate spread and z-score
             spread = price1 - price2
             z_score = (spread - spread.rolling(lookback).mean()) / spread.rolling(lookback).std()
+
+            # Rolling ADF test on 30-day window to ensure ongoing cointegration
+            adf_window = 30
+            rolling_adf = spread.rolling(adf_window).apply(
+                lambda x: adfuller(x)[1] if x.notna().sum() == adf_window else np.nan,
+                raw=False
+            )
             
             # Generate entry signals - vectorbt expects 1 for long, -1 for short, 0 for no position
             entries = pd.Series(0, index=price1.index)
             entries[z_score < -entry_threshold] = 1   # Long when z-score is low (spread is low)
             entries[z_score > entry_threshold] = -1   # Short when z-score is high (spread is high)
+
+            # Cancel entries if recent ADF test fails (p-value > 0.05)
+            invalid_coint = rolling_adf > 0.05
+            entries[invalid_coint] = 0
             
             # Generate exit signals - vectorbt expects True for exit, False for no exit
             exits = pd.Series(False, index=price1.index)
@@ -111,9 +125,12 @@ class VectorBTBacktest:
             # Debug logging
             long_signals = (entries == 1).sum()
             short_signals = (entries == -1).sum()
+            invalid_days = invalid_coint.sum()
             exit_signals = exits.sum()
             
-            self.logger.info(f"VectorBT signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}")
+            self.logger.info(
+                f"VectorBT signals - Long: {long_signals}, Short: {short_signals}, Exit: {exit_signals}, Invalid: {invalid_days}"
+            )
             self.logger.info(f"Z-score range: {z_score.min():.3f} to {z_score.max():.3f}")
             
             return entries, exits
@@ -223,6 +240,13 @@ class VectorBTBacktest:
         except Exception as e:
             self.logger.error(f"Error applying ATR stop loss: {e}")
             return exits
+
+    def execute_signals(self, returns: pd.Series) -> pd.Series:
+        """Apply execution timing penalty if enabled."""
+        if self.config.execution_timing:
+            self.logger.info("Applying execution timing penalty factor")
+            return returns / self.config.execution_penalty_factor
+        return returns
     
     def run_vectorized_backtest(self, price1: pd.Series, price2: pd.Series,
                                regime_series: Optional[pd.Series] = None,
@@ -293,10 +317,11 @@ class VectorBTBacktest:
                 )
             
             # Extract results
+            adj_returns = self.execute_signals(portfolio.returns())
             results = {
                 'portfolio': portfolio,
-                'equity_curve': portfolio.value(),
-                'returns': portfolio.returns(),
+                'equity_curve': self.config.initial_capital * (1 + adj_returns).cumprod(),
+                'returns': adj_returns,
                 'trades': trade_records,
                 'detailed_trades': detailed_trades,
                 'signals': {
@@ -658,8 +683,8 @@ class VectorBTBacktest:
                 return f"No portfolio data available for {pair_name}"
             
             try:
-                returns = portfolio.returns()
-                equity = portfolio.value()
+                returns = results.get('returns', portfolio.returns())
+                equity = results.get('equity_curve', portfolio.value())
                 
                 if returns.empty or equity.empty:
                     return f"No valid returns/equity data for {pair_name}"
