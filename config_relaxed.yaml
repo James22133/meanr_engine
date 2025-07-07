@@ -72,10 +72,19 @@ backtest:
   max_concurrent_positions: 5
   execution_timing: true
   execution_penalty_factor: 1.05
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
   behavioral_execution: true
   include_unhealthy_pairs: false
   health_strict_mode: true
   stress_filtering: true
+#conflict resolved here 
+# conflict markers removed here  f3usdw-codex/modify-backtest-engine-with-slippage-and-filters
+  behavioral_execution: true
+  include_unhealthy_pairs: false
+  stress_filtering: true
+#conflict resolved here 
+# conflict markers removed here  main
+#conflict resolved here  main
   regime_scaling: true
   regime_volatility_multiplier: 1.0
   regime_trend_multiplier: 1.0

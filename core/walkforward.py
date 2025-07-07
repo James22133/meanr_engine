@@ -106,6 +106,7 @@ class WalkForwardValidator:
         }
 
 
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
 def walk_forward_backtest(
     price_data: pd.DataFrame,
     selected_pairs: List[Tuple[str, str]],
@@ -114,6 +115,9 @@ def walk_forward_backtest(
     backtester,
     output_path: str = "walkforward_stats.csv",
 ) -> pd.DataFrame:
+#conflict resolved here 
+def walk_forward_backtest(price_data: pd.DataFrame, selected_pairs: List[Tuple[str, str]], config: Dict, pair_selector, backtester) -> pd.DataFrame:
+#conflict resolved here main
     """Simple rolling walk-forward analysis with health checks."""
     results = []
     train_size = 180
@@ -155,6 +159,7 @@ def walk_forward_backtest(
                                 window_stats.append({'pair': pair, 'sharpe': sharpe, 'return': total_ret})
         if window_stats:
             df = pd.DataFrame(window_stats)
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
             avg_sharpe = df['sharpe'].mean()
             avg_return = df['return'].mean()
 
@@ -178,4 +183,15 @@ def walk_forward_backtest(
     if results:
         pd.DataFrame(results).to_csv(output_path, index=False)
 
+#conflict resolved here 
+            results.append({
+                'start': train.index[0],
+                'end': test.index[-1],
+                'avg_sharpe': df['sharpe'].mean(),
+                'avg_return': df['return'].mean(),
+                'pairs': len(window_stats)
+            })
+    if results:
+        pd.DataFrame(results).to_csv('walkforward_stats.csv', index=False)
+#conflict resolved here  main
     return pd.DataFrame(results)

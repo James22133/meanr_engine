@@ -241,6 +241,7 @@ class VectorBTBacktest:
             self.logger.error(f"Error applying ATR stop loss: {e}")
             return exits
 
+#conflict resolved here wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
     def execute_signals(
         self,
         returns: pd.Series,
@@ -260,6 +261,14 @@ class VectorBTBacktest:
         adjusted = returns.copy()
         adjusted[stress_mask] = adjusted[stress_mask] / self.config.execution_penalty_factor
         return adjusted
+#conflict resolved here 
+    def execute_signals(self, returns: pd.Series) -> pd.Series:
+        """Apply execution timing penalty if enabled."""
+        if self.config.execution_timing:
+            self.logger.info("Applying execution timing penalty factor")
+            return returns / self.config.execution_penalty_factor
+        return returns
+#conflict resolved here  main
     
     def run_vectorized_backtest(
         self,
@@ -348,9 +357,13 @@ class VectorBTBacktest:
                 )
             
             # Extract results
+#conflict resolved here  wkkj7n-codex/modify-backtest-engine-with-slippage-and-filters
             vix = vix_series.reindex(portfolio.returns().index) if vix_series is not None else None
             spy_ret = spy_series.pct_change(5).reindex(portfolio.returns().index) if spy_series is not None else None
             adj_returns = self.execute_signals(portfolio.returns(), vix, spy_ret)
+#conflict resolved here 
+            adj_returns = self.execute_signals(portfolio.returns())
+#conflict resolved here  main
             results = {
                 'portfolio': portfolio,
                 'equity_curve': self.config.initial_capital * (1 + adj_returns).cumprod(),

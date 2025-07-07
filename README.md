@@ -15,7 +15,7 @@ A quantitative trading strategy implementing advanced pairs trading strategies u
 - **Risk Management**: Volatility targeting, position sizing, and comprehensive risk controls
 - **Behavioral Execution**: Trades are filtered to the late-day window to mimic retail execution
 - **Pair Health Logging**: Daily ADF and Hurst metrics are exported for monitoring
-- **Health Log CSV**: Detailed pair health metrics are written to `pair_health_log.csv`
+
 - **Stress Filters**: Signal generation halts when VIX spikes or market returns crash
 
 ### Backtesting & Analysis
