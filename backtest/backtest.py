@@ -42,7 +42,7 @@ class BacktestConfig:
     """Configuration parameters for backtesting."""
     initial_capital: float = 1_000_000
     target_volatility: float = 0.10  # 10% annualized
-    slippage_bps: float = 2.0
+    slippage_bps: float = 15.0  # 0.15% per side (~0.3% round trip)
     commission_bps: float = 1.0
     stop_loss_k: float = 2.0  # Multiplier for volatility-based stop-loss
     zscore_entry_threshold: float = 2.0
@@ -118,7 +118,7 @@ class PairsBacktest:
             self.stop_loss_k = config.get('stop_loss_k', 2.0)
             self.max_hold_days = config.get('max_hold_days', None)
             self.target_profit_pct = config.get('target_profit_pct', None)
-            self.slippage_bps = config.get('slippage_bps', 2.0)
+            self.slippage_bps = config.get('slippage_bps', 15.0)
             self.commission_bps = config.get('commission_bps', 1.0)
         else:
             self.config = config.__dict__
@@ -129,7 +129,7 @@ class PairsBacktest:
             self.stop_loss_k = getattr(config, 'stop_loss_k', 2.0)
             self.max_hold_days = getattr(config, 'max_hold_days', None)
             self.target_profit_pct = getattr(config, 'target_profit_pct', None)
-            self.slippage_bps = getattr(config, 'slippage_bps', 2.0)
+            self.slippage_bps = getattr(config, 'slippage_bps', 15.0)
             self.commission_bps = getattr(config, 'commission_bps', 1.0)
         
     def calculate_position_size(

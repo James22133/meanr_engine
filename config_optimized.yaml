@@ -64,7 +64,7 @@ regime:
 backtest:
   initial_capital: 1000000
   target_volatility: 0.20  # Increased for higher returns
-  slippage_bps: 5.0
+  slippage_bps: 15.0
   commission_bps: 10.0
   stop_loss_k: 2.5  # Increased for more room
   zscore_entry_threshold: 1.6  # Aligned with signals.entry_threshold
@@ -73,6 +73,11 @@ backtest:
   target_profit_pct: 0.03  # Lower target for more frequent exits
   rebalance_freq: 21
   max_concurrent_positions: 6  # Increased for more diversification
+  execution_timing: true
+  execution_penalty_factor: 1.05
+  behavioral_execution: true
+  include_unhealthy_pairs: false
+  stress_filtering: true
   regime_scaling: true
   regime_volatility_multiplier: 1.2  # More aggressive in volatile regimes
   regime_trend_multiplier: 1.1
@@ -90,7 +95,7 @@ statistical:
   coint_pvalue_max: 0.10  # Relaxed from 0.05
   r_squared_min: 0.5  # Relaxed from 0.7
   correlation_min: 0.6  # Relaxed from 0.8
-  hurst_threshold: 0.7  # Relaxed from 0.5 (allows more trending pairs)
+  hurst_threshold: 0.65  # Maximum Hurst exponent for mean reversion
   min_observations: 252
   max_volatility_spread: 1.5  # Maximum volatility spread ratio (prevents EOG-VLO type pairs)
   max_sector_pairs: 3  # Maximum pairs per sector
