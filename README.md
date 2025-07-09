@@ -1,12 +1,26 @@
-# Mean Reversion Pairs Trading Engine
+# Enhanced Mean Reversion Pairs Trading Engine
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A quantitative trading strategy implementing advanced pairs trading strategies using mean reversion principles, statistical arbitrage, and machine learning techniques.
+A comprehensive, regime-aware pairs trading strategy with advanced performance analysis, visualization, and reporting capabilities.
 
 ## 🚀 Features
+
+### Core Strategy
+- **Regime-aware trading** with VIX, trend, and Sharpe ratio filters
+- **Enhanced pair selection** using cointegration, Hurst exponent, and volatility analysis
+- **Behavioral execution** with late-day entry filters
+- **Adaptive thresholds** that scale with market conditions
+- **Walk-forward validation** for robust parameter optimization
+
+### Performance Analysis & Reporting
+- **Comprehensive metrics** including Sharpe, Sortino, Calmar ratios, and more
+- **Benchmark comparisons** against SPY and buy-and-hold portfolios
+- **Interactive visualizations** with equity curves, drawdown analysis, and trade distributions
+- **Detailed CSV logs** for further analysis
+- **Automated report generation** with performance summaries
 
 ### Core Trading Engine
 - **Advanced Pair Selection**: Multi-factor statistical analysis including cointegration, ADF tests, and Hurst exponent calculations
@@ -210,28 +224,58 @@ statistical:
 
 ## 📊 Performance Metrics
 
-The engine calculates comprehensive performance metrics:
+The engine calculates and reports the following comprehensive metrics:
 
 ### Return Metrics
 - **Total Return**: Cumulative strategy performance
-- **Annualized Return**: Year-over-year performance
-- **Sharpe Ratio**: Risk-adjusted returns
-- **Sortino Ratio**: Downside risk-adjusted returns
-- **Calmar Ratio**: Maximum drawdown-adjusted returns
+- **CAGR**: Compound Annual Growth Rate
+- **Annual Volatility**: Standard deviation of returns (annualized)
+
+### Risk-Adjusted Returns
+- **Sharpe Ratio**: Excess return per unit of risk
+- **Sortino Ratio**: Excess return per unit of downside risk
+- **Calmar Ratio**: CAGR divided by maximum drawdown
+- **Information Ratio**: Excess return relative to benchmark
 
 ### Risk Metrics
 - **Maximum Drawdown**: Largest peak-to-trough decline
-- **Value at Risk (VaR)**: 95% and 99% confidence levels
-- **Conditional VaR**: Expected loss beyond VaR
-- **Volatility**: Annualized standard deviation
-- **Downside Risk**: Negative return volatility
+- **VaR (95%)**: Value at Risk at 95% confidence
+- **CVaR (95%)**: Conditional Value at Risk
+- **Skewness & Kurtosis**: Distribution shape characteristics
 
 ### Trade Statistics
 - **Win Rate**: Percentage of profitable trades
-- **Profit Factor**: Ratio of gross profits to gross losses
+- **Profit Factor**: Total profit divided by total loss
 - **Average Win/Loss**: Mean profit and loss per trade
-- **Maximum Consecutive Wins/Losses**: Streak analysis
-- **Recovery Time**: Time to recover from drawdowns
+- **Average Trade Duration**: Mean holding period in days
+
+### Rolling Metrics
+- **30-Day Rolling Sharpe**: Rolling risk-adjusted returns
+- **30-Day Rolling Drawdown**: Rolling maximum drawdown
+- **Best/Worst 30-Day Returns**: Period performance extremes
+
+## 📈 Output Files
+
+After each backtest, the engine generates comprehensive outputs:
+
+### Performance Summary
+- `performance_summary.json` - Complete metrics in JSON format
+- `comprehensive_report.txt` - Human-readable performance summary
+
+### CSV Logs
+- `daily_equity.csv` - Daily NAV, returns, drawdown, and rolling metrics
+- `trade_log.csv` - Individual trade details with entry/exit, PnL, and regime info
+- `walkforward_stats.csv` - Walk-forward validation statistics
+- `pair_health_log.csv` - Pair health metrics (ADF, Hurst, volatility)
+
+### Visualizations
+- `equity_curve_*.png` - Strategy vs benchmark comparison
+- `drawdown_analysis_*.png` - Drawdown comparison chart
+- `trade_pnl_histogram_*.png` - Trade PnL distribution
+- `holding_period_histogram_*.png` - Trade duration distribution
+- `rolling_metrics_*.png` - Rolling Sharpe and drawdown
+- `signal_chart_*.png` - Entry/exit points on price series
+- `performance_summary_*.png` - Key metrics summary chart
 
 ## 🧪 Testing
 
@@ -270,8 +314,6 @@ python alpaca_backtrader_sim.py \
     --mode paper
 ```
 
-
-
 ## 🤝 Contributing
 
 Any Reccommendations for improvement or contributions would be sound.
@@ -300,5 +342,62 @@ pytest
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+For issues and questions:
+1. Check the test results: `python run_edge_case_tests.py`
+2. Review the performance logs in the output directory
+3. Examine the comprehensive report for detailed analysis
+4. Check the README for configuration guidance
+
+## 🎯 Success Criteria
+
+After running a backtest, you should be able to:
+1. ✅ View all major performance metrics
+2. ✅ Compare strategy vs. buy & hold performance
+3. ✅ Visualize equity curves and risk charts
+4. ✅ Export CSVs for further analysis
+5. ✅ Generate comprehensive performance reports
+
+## Key Updates (July 2025)
+
+- **Position Sizing Fix:**
+  - Backtest engine now uses configurable position sizing (`position_size_pct` in config).
+  - Actual dollar PnL is calculated and stored for each trade, not just spread units.
+  - Diagnostics print per-trade share size, spread change, and expected PnL.
+- **Accurate PnL Reporting:**
+  - Analysis script (`analyze_optimized_results.py`) now reports true, scaled PnL per trade and total, reflecting your capital allocation.
+- **How to Use:**
+  1. Edit `config_optimized_simple.yaml` to set `position_size_pct` (e.g., `0.20` for 20% of capital per trade).
+  2. Run the optimized backtest:
+     ```bash
+     python run_optimized_backtest.py
+     ```
+  3. Analyze results:
+     ```bash
+     python analyze_optimized_results.py
+     ```
+  4. Check the output for true per-trade and total PnL, win rate, and Sharpe ratio.
+
+## Example Output
+
+```
+SMH-SPY
+  Total Trades: 104
+  Total Actual PnL: $6,334.62
+  Average Actual PnL per Trade: $60.91
+EFA-QQQ
+  Total Trades: 96
+  Total Actual PnL: -$805.89
+  Average Actual PnL per Trade: -$8.39
+Overall
+  Total Actual PnL: $5,528.72
+  Average Actual PnL per Trade: $27.64
+```
+
+---
+
+For more details, see the comments in `core/backtest_runner.py` and `analyze_optimized_results.py`.
 
 
