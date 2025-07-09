@@ -49,6 +49,9 @@ class BacktestConfig:
     rebalance_freq: int = 21  # Default to weekly rebalancing
     max_concurrent_positions: int = 5  # Default to 5 positions
     risk_control: Optional[dict] = None
+    stop_loss_pct: float = 0.02  # 2% stop loss
+    take_profit_pct: float = 0.05  # 5% take profit
+    position_size_pct: float = 0.05  # 5% of capital per trade (default)
 
 
 @dataclass

@@ -1,0 +1,64 @@
+# Simplified Optimized Configuration
+# Only includes fields supported by the BacktestConfig dataclass
+
+# Data configuration
+ETF_TICKERS: ["SPY", "QQQ", "SMH", "EFA"]
+START_DATE: "2018-01-01"
+END_DATE: "2024-12-31"
+use_cache: false
+force_refresh: false
+
+# Pair selection configuration
+PAIR_SELECTION:
+  min_correlation: 0.6
+  min_spread_stability: 0.4
+  max_zscore_volatility: 1.5
+  min_cointegration_stability: 0.3
+  correlation_window: 60
+  spread_stability_window: 60
+  stability_lookback: 20
+  min_data_points: 100
+
+# Backtest configuration - OPTIMIZED
+backtest:
+  initial_capital: 1000000
+  target_volatility: 0.15
+  slippage_bps: 10.0
+  commission_bps: 5.0
+  stop_loss_k: 2.0
+  zscore_entry_threshold: 2.5
+  zscore_exit_threshold: 0.2
+  max_hold_days: 10
+  target_profit_pct: 0.02
+  rebalance_freq: 21
+  max_concurrent_positions: 3
+  position_size_pct: 0.20  # 20% of capital per trade (4x increase)
+
+# Risk control configuration
+risk_control:
+  max_drawdown_per_pair: 0.03
+  max_drawdown_per_trade: 0.01
+  max_pair_exposure: 0.05
+
+# Pair scoring configuration
+pair_scoring:
+  weights:
+    correlation: 0.05
+    coint_p: 0.4
+    hurst: 0.2
+    zscore_vol: 0.1
+
+# Walkforward configuration
+walkforward:
+  train_months: 24
+  test_months: 6
+  z_entry_values: [2.0, 2.5, 3.0]
+  z_exit_values: [0.1, 0.2]
+  scoring_metric: "sharpe_ratio"
+
+# Pair universes
+PAIR_UNIVERSES:
+  default:
+    symbols: ["SPY", "QQQ", "SMH", "EFA"]
+    min_correlation: 0.6
+    max_pairs: 2 
