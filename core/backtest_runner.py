@@ -16,9 +16,14 @@ class BacktestRunner:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-    def _calculate_trade_pnl(self, position: int, entry_price: float, exit_price: float, 
+    def _calculate_trade_pnl(self, position: int, entry_price: float, exit_price: float,
                            current_prices: pd.Series, hedge_ratio: float) -> float:
-        """Calculate the actual PnL for a trade with proper position sizing."""
+        """Calculate the actual PnL for a trade with proper position sizing.
+
+        Transaction costs (slippage + commission) are applied using the
+        ``slippage_bps`` and ``commission_bps`` values from the backtest
+        configuration.  Costs are based on the notional value traded.
+        """
         position_size_pct = getattr(self.config.backtest, 'position_size_pct', 0.05)
         position_size_dollars = self.config.backtest.initial_capital * position_size_pct
         
@@ -34,8 +39,16 @@ class BacktestRunner:
         # Use the smaller share count to ensure we don't exceed position size
         shares = min(asset1_shares, asset2_shares)
         
-        # Calculate PnL with proper position sizing
+        # Calculate raw PnL with proper position sizing
         pnl = position * shares * (exit_price - entry_price)
+
+        # Apply transaction costs (round trip)
+        slippage_bps = getattr(self.config.backtest, 'slippage_bps', 0.0)
+        commission_bps = getattr(self.config.backtest, 'commission_bps', 0.0)
+        cost_pct = (slippage_bps + commission_bps) / 10000
+        notional = (abs(entry_price) + abs(exit_price)) * shares
+        pnl -= notional * cost_pct
+
         return pnl
 
     def run_backtest(
