@@ -212,7 +212,12 @@ class RegimeFilter:
             self.logger.error(f"Error in Sharpe ratio check: {e}")
             return True  # Default to allowing trades if error
     
-    def get_regime_multiplier(self, spread: pd.Series, date: pd.Timestamp) -> float:
+    def get_regime_multiplier(
+        self,
+        spread: pd.Series,
+        date: pd.Timestamp,
+        spy_returns: Optional[pd.Series] = None,
+    ) -> float:
         """
         Get position size multiplier based on current regime.
         
@@ -237,6 +242,12 @@ class RegimeFilter:
             # Check Sharpe ratio regime
             if not self.is_sharpe_favorable(spread):
                 multiplier *= 0.7  # Reduce position size if Sharpe is poor
+
+            if spy_returns is not None and len(spread) >= 5:
+                pair_ret = spread.pct_change().rolling(5).mean()
+                corr = pair_ret.corr(spy_returns.reindex(pair_ret.index))
+                if corr and corr > 0.6:
+                    multiplier *= 0.5
             
             return max(0.1, min(2.0, multiplier))  # Clamp between 0.1 and 2.0
             
@@ -244,7 +255,12 @@ class RegimeFilter:
             self.logger.error(f"Error calculating regime multiplier: {e}")
             return 1.0
     
-    def should_trade(self, spread: pd.Series, date: pd.Timestamp) -> Tuple[bool, Dict]:
+    def should_trade(
+        self,
+        spread: pd.Series,
+        date: pd.Timestamp,
+        spy_returns: Optional[pd.Series] = None,
+    ) -> Tuple[bool, Dict]:
         """
         Determine if we should trade based on all regime filters.
         
@@ -289,7 +305,7 @@ class RegimeFilter:
                     regime_info['sharpe_regime'] = 'good'
             
             # Calculate position size multiplier
-            regime_info['multiplier'] = self.get_regime_multiplier(spread, date)
+            regime_info['multiplier'] = self.get_regime_multiplier(spread, date, spy_returns)
             
             return regime_info['should_trade'], regime_info
             

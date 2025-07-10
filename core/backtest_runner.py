@@ -10,75 +10,48 @@ from datetime import datetime
 
 class BacktestRunner:
     """Class for running backtests on selected pairs."""
-    
+
     def __init__(self, config):
         """Initialize the backtest runner with configuration."""
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-#Conflicts removed iknhsf-codex/expand-pair-universe-for-alpha-maximization
     def _calculate_trade_pnl(
         self,
         position: int,
         entry_spread: float,
         exit_spread: float,
-        shares: float,
+        shares: Optional[float] = None,
+        current_prices: Optional[pd.Series] = None,
+        hedge_ratio: float = 1.0,
     ) -> Tuple[float, float, float]:
-        """Calculate gross and net PnL for a closed trade.
+        """Calculate trade PnL with slippage and commission costs."""
+        # Allow older call signature where ``shares`` may actually contain prices
+        if shares is not None and isinstance(shares, pd.Series) and current_prices is None:
+            current_prices = shares
+            shares = None
 
-        Returns a tuple ``(gross_pnl, cost, net_pnl)`` where ``cost`` is the
-        combined slippage and commission based on the configured basis point
-        values.
-        """
+        if shares is None and current_prices is not None:
+            position_size_pct = getattr(self.config.backtest, 'position_size_pct', 0.05)
+            position_size_dollars = self.config.backtest.initial_capital * position_size_pct
+            asset1_price = current_prices['asset1']
+            asset2_price = current_prices['asset2']
+            asset1_shares = position_size_dollars / (2 * asset1_price)
+            asset2_shares = (position_size_dollars * hedge_ratio) / (2 * asset2_price)
+            shares = min(asset1_shares, asset2_shares)
+        elif shares is None:
+            shares = 0.0
 
-        # Gross PnL from change in spread
         gross_pnl = position * shares * (exit_spread - entry_spread)
 
-        # Transaction costs (round trip)
-        slippage_bps = getattr(self.config.backtest, "slippage_bps", 0.0)
-        commission_bps = getattr(self.config.backtest, "commission_bps", 0.0)
+        slippage_bps = getattr(self.config.backtest, 'slippage_bps', 0.0)
+        commission_bps = getattr(self.config.backtest, 'commission_bps', 0.0)
         cost_pct = (slippage_bps + commission_bps) / 10000
         notional = (abs(entry_spread) + abs(exit_spread)) * shares
         cost = notional * cost_pct
 
         net_pnl = gross_pnl - cost
         return gross_pnl, cost, net_pnl
-#Conflicts removed
-    def _calculate_trade_pnl(self, position: int, entry_price: float, exit_price: float,
-                           current_prices: pd.Series, hedge_ratio: float) -> float:
-        """Calculate the actual PnL for a trade with proper position sizing.
-
-        Transaction costs (slippage + commission) are applied using the
-        ``slippage_bps`` and ``commission_bps`` values from the backtest
-        configuration.  Costs are based on the notional value traded.
-        """
-        position_size_pct = getattr(self.config.backtest, 'position_size_pct', 0.05)
-        position_size_dollars = self.config.backtest.initial_capital * position_size_pct
-        
-        # Get current asset prices
-        asset1_price = current_prices['asset1']
-        asset2_price = current_prices['asset2']
-        
-        # Calculate number of shares using hedge ratio for proper pairs trading
-        total_position_value = position_size_dollars
-        asset1_shares = total_position_value / (2 * asset1_price)  # Half for asset1
-        asset2_shares = (total_position_value * hedge_ratio) / (2 * asset2_price)  # Half for asset2
-        
-        # Use the smaller share count to ensure we don't exceed position size
-        shares = min(asset1_shares, asset2_shares)
-        
-        # Calculate raw PnL with proper position sizing
-        pnl = position * shares * (exit_price - entry_price)
-
-        # Apply transaction costs (round trip)
-        slippage_bps = getattr(self.config.backtest, 'slippage_bps', 0.0)
-        commission_bps = getattr(self.config.backtest, 'commission_bps', 0.0)
-        cost_pct = (slippage_bps + commission_bps) / 10000
-        notional = (abs(entry_price) + abs(exit_price)) * shares
-        pnl -= notional * cost_pct
-
-        return pnl
-#Conflicts removed main
 
     def run_backtest(
         self,
@@ -109,6 +82,7 @@ class BacktestRunner:
             # Get spread and Z-score
             spread = pair_metrics['spread']
             zscore = pair_metrics['zscore']
+            spread_std_series = spread.rolling(20).std()
             
             # Get hedge ratio for proper position sizing
             hedge_ratio = pair_metrics.get('hedge_ratio', 1.0)
@@ -123,6 +97,7 @@ class BacktestRunner:
             position = 0
             entry_price = 0.0
             current_shares = 0.0
+            current_entry_std = 0.0
             
             for i in range(1, len(pair_data)):
                 # Get current values
@@ -151,6 +126,7 @@ class BacktestRunner:
                         asset1_shares = capital_per_leg / asset1_price
                         asset2_shares = (capital_per_leg / asset2_price) * hedge_ratio
                         current_shares = min(asset1_shares, asset2_shares)
+                        entry_std = spread_std_series.iloc[i]
 
                         results['trades'].append({
                             'entry_date': pair_data.index[i],
@@ -160,7 +136,10 @@ class BacktestRunner:
                             'asset1_entry_price': asset1_price,
                             'asset2_entry_price': asset2_price,
                             'shares': current_shares,
+                            'entry_std': entry_std,
                         })
+
+                        current_entry_std = entry_std
 
                         self.logger.info(
                             f"ENTER TRADE {len(results['trades'])}: A1={asset1_price:.2f}, "
@@ -170,7 +149,7 @@ class BacktestRunner:
                 # Check for exit
                 elif position != 0:
                     # Check stop loss
-                    if self._check_stop_loss(current_spread, entry_price, position):
+                    if self._check_stop_loss(current_spread, entry_price, position, current_entry_std):
                         gross, cost, pnl = self._calculate_trade_pnl(position, entry_price, current_spread, current_shares)
                         position = 0
                         results['trades'][-1].update({
@@ -188,6 +167,7 @@ class BacktestRunner:
                             f"cost={cost:.2f}, net={pnl:.2f}"
                         )
                         current_shares = 0.0
+                        current_entry_std = 0.0
 
                     # Check take profit
                     elif self._check_take_profit(current_spread, entry_price, position):
@@ -208,6 +188,7 @@ class BacktestRunner:
                             f"cost={cost:.2f}, net={pnl:.2f}"
                         )
                         current_shares = 0.0
+                        current_entry_std = 0.0
 
                     # Check mean reversion exit
                     elif (position == 1 and current_zscore >= -exit_threshold) or \
@@ -229,6 +210,7 @@ class BacktestRunner:
                             f"cost={cost:.2f}, net={pnl:.2f}"
                         )
                         current_shares = 0.0
+                        current_entry_std = 0.0
 
                 # Update position and PnL
                 results['positions'].iloc[i] = position
@@ -266,13 +248,20 @@ class BacktestRunner:
             self.logger.error(f"Error calculating exit threshold: {str(e)}")
             return 0.5
 
-    def _check_stop_loss(self, current_spread: float, entry_price: float, position: int) -> bool:
-        """Check if stop loss is triggered."""
+    def _check_stop_loss(
+        self,
+        current_spread: float,
+        entry_price: float,
+        position: int,
+        entry_std: float,
+    ) -> bool:
+        """Check if stop loss is triggered based on spread standard deviation."""
         try:
+            threshold = self.config.backtest.stop_loss_k * entry_std
             if position == 1:  # Long position
-                return (entry_price - current_spread) / abs(entry_price) >= self.config.backtest.stop_loss_pct
+                return current_spread - entry_price <= -threshold
             else:  # Short position
-                return (current_spread - entry_price) / abs(entry_price) >= self.config.backtest.stop_loss_pct
+                return current_spread - entry_price >= threshold
         except Exception as e:
             self.logger.error(f"Error checking stop loss: {str(e)}")
             return False
