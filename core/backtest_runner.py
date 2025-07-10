@@ -16,6 +16,34 @@ class BacktestRunner:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
+#Conflicts removed iknhsf-codex/expand-pair-universe-for-alpha-maximization
+    def _calculate_trade_pnl(
+        self,
+        position: int,
+        entry_spread: float,
+        exit_spread: float,
+        shares: float,
+    ) -> Tuple[float, float, float]:
+        """Calculate gross and net PnL for a closed trade.
+
+        Returns a tuple ``(gross_pnl, cost, net_pnl)`` where ``cost`` is the
+        combined slippage and commission based on the configured basis point
+        values.
+        """
+
+        # Gross PnL from change in spread
+        gross_pnl = position * shares * (exit_spread - entry_spread)
+
+        # Transaction costs (round trip)
+        slippage_bps = getattr(self.config.backtest, "slippage_bps", 0.0)
+        commission_bps = getattr(self.config.backtest, "commission_bps", 0.0)
+        cost_pct = (slippage_bps + commission_bps) / 10000
+        notional = (abs(entry_spread) + abs(exit_spread)) * shares
+        cost = notional * cost_pct
+
+        net_pnl = gross_pnl - cost
+        return gross_pnl, cost, net_pnl
+#Conflicts removed
     def _calculate_trade_pnl(self, position: int, entry_price: float, exit_price: float,
                            current_prices: pd.Series, hedge_ratio: float) -> float:
         """Calculate the actual PnL for a trade with proper position sizing.
@@ -50,6 +78,7 @@ class BacktestRunner:
         pnl -= notional * cost_pct
 
         return pnl
+#Conflicts removed main
 
     def run_backtest(
         self,
@@ -93,6 +122,7 @@ class BacktestRunner:
             # Run backtest
             position = 0
             entry_price = 0.0
+            current_shares = 0.0
             
             for i in range(1, len(pair_data)):
                 # Get current values
@@ -106,91 +136,104 @@ class BacktestRunner:
                         # Long spread
                         position = 1
                         entry_price = current_spread
-                        results['trades'].append({
-                            'entry_date': pair_data.index[i],
-                            'entry_price': entry_price,
-                            'position': position,
-                            'type': 'long'
-                        })
                     elif current_zscore >= entry_threshold:
                         # Short spread
                         position = -1
                         entry_price = current_spread
+
+                    if position != 0:
+                        # Determine position size using entry prices
+                        asset1_price = current_prices['asset1']
+                        asset2_price = current_prices['asset2']
+                        position_size_pct = getattr(self.config.backtest, 'position_size_pct', 0.05)
+                        position_size_dollars = self.config.backtest.initial_capital * position_size_pct
+                        capital_per_leg = position_size_dollars / 2
+                        asset1_shares = capital_per_leg / asset1_price
+                        asset2_shares = (capital_per_leg / asset2_price) * hedge_ratio
+                        current_shares = min(asset1_shares, asset2_shares)
+
                         results['trades'].append({
                             'entry_date': pair_data.index[i],
                             'entry_price': entry_price,
                             'position': position,
-                            'type': 'short'
+                            'type': 'long' if position == 1 else 'short',
+                            'asset1_entry_price': asset1_price,
+                            'asset2_entry_price': asset2_price,
+                            'shares': current_shares,
                         })
-                
+
+                        self.logger.info(
+                            f"ENTER TRADE {len(results['trades'])}: A1={asset1_price:.2f}, "
+                            f"A2={asset2_price:.2f}, Shares={current_shares:.2f}"
+                        )
+
                 # Check for exit
                 elif position != 0:
                     # Check stop loss
                     if self._check_stop_loss(current_spread, entry_price, position):
-                        # Calculate actual PnL for this trade BEFORE setting position to 0
-                        original_position = position
-                        pnl = self._calculate_trade_pnl(original_position, entry_price, current_spread, current_prices, hedge_ratio)
+                        gross, cost, pnl = self._calculate_trade_pnl(position, entry_price, current_spread, current_shares)
                         position = 0
-                        results['trades'][-1]['exit_date'] = pair_data.index[i]
-                        results['trades'][-1]['exit_price'] = current_spread
-                        results['trades'][-1]['exit_type'] = 'stop_loss'
-                        results['trades'][-1]['pnl'] = pnl
-                    
+                        results['trades'][-1].update({
+                            'exit_date': pair_data.index[i],
+                            'exit_price': current_spread,
+                            'exit_type': 'stop_loss',
+                            'asset1_exit_price': current_prices['asset1'],
+                            'asset2_exit_price': current_prices['asset2'],
+                            'gross_pnl': gross,
+                            'transaction_cost': cost,
+                            'pnl': pnl,
+                        })
+                        self.logger.info(
+                            f"EXIT TRADE {len(results['trades'])}: gross={gross:.2f}, "
+                            f"cost={cost:.2f}, net={pnl:.2f}"
+                        )
+                        current_shares = 0.0
+
                     # Check take profit
                     elif self._check_take_profit(current_spread, entry_price, position):
-                        # Calculate actual PnL for this trade BEFORE setting position to 0
-                        original_position = position
-                        pnl = self._calculate_trade_pnl(original_position, entry_price, current_spread, current_prices, hedge_ratio)
+                        gross, cost, pnl = self._calculate_trade_pnl(position, entry_price, current_spread, current_shares)
                         position = 0
-                        results['trades'][-1]['exit_date'] = pair_data.index[i]
-                        results['trades'][-1]['exit_price'] = current_spread
-                        results['trades'][-1]['exit_type'] = 'take_profit'
-                        results['trades'][-1]['pnl'] = pnl
-                    
+                        results['trades'][-1].update({
+                            'exit_date': pair_data.index[i],
+                            'exit_price': current_spread,
+                            'exit_type': 'take_profit',
+                            'asset1_exit_price': current_prices['asset1'],
+                            'asset2_exit_price': current_prices['asset2'],
+                            'gross_pnl': gross,
+                            'transaction_cost': cost,
+                            'pnl': pnl,
+                        })
+                        self.logger.info(
+                            f"EXIT TRADE {len(results['trades'])}: gross={gross:.2f}, "
+                            f"cost={cost:.2f}, net={pnl:.2f}"
+                        )
+                        current_shares = 0.0
+
                     # Check mean reversion exit
                     elif (position == 1 and current_zscore >= -exit_threshold) or \
                          (position == -1 and current_zscore <= exit_threshold):
-                        # Calculate actual PnL for this trade BEFORE setting position to 0
-                        original_position = position
-                        pnl = self._calculate_trade_pnl(original_position, entry_price, current_spread, current_prices, hedge_ratio)
+                        gross, cost, pnl = self._calculate_trade_pnl(position, entry_price, current_spread, current_shares)
                         position = 0
-                        results['trades'][-1]['exit_date'] = pair_data.index[i]
-                        results['trades'][-1]['exit_price'] = current_spread
-                        results['trades'][-1]['exit_type'] = 'mean_reversion'
-                        results['trades'][-1]['pnl'] = pnl
-                
+                        results['trades'][-1].update({
+                            'exit_date': pair_data.index[i],
+                            'exit_price': current_spread,
+                            'exit_type': 'mean_reversion',
+                            'asset1_exit_price': current_prices['asset1'],
+                            'asset2_exit_price': current_prices['asset2'],
+                            'gross_pnl': gross,
+                            'transaction_cost': cost,
+                            'pnl': pnl,
+                        })
+                        self.logger.info(
+                            f"EXIT TRADE {len(results['trades'])}: gross={gross:.2f}, "
+                            f"cost={cost:.2f}, net={pnl:.2f}"
+                        )
+                        current_shares = 0.0
+
                 # Update position and PnL
                 results['positions'].iloc[i] = position
                 if position != 0:
-                    # Calculate proper position sizing using config parameter
-                    position_size_pct = getattr(self.config.backtest, 'position_size_pct', 0.05)
-                    position_size_dollars = self.config.backtest.initial_capital * position_size_pct
-                    
-                    # Get current asset prices
-                    asset1_price = current_prices['asset1']
-                    asset2_price = current_prices['asset2']
-                    
-                    # Calculate number of shares using hedge ratio for proper pairs trading
-                    # For pairs trading: long asset1, short hedge_ratio * asset2
-                    total_position_value = position_size_dollars
-                    asset1_shares = total_position_value / (2 * asset1_price)  # Half for asset1
-                    asset2_shares = (total_position_value * hedge_ratio) / (2 * asset2_price)  # Half for asset2
-                    
-                    # Use the smaller share count to ensure we don't exceed position size
-                    shares = min(asset1_shares, asset2_shares)
-                    
-                    # Add diagnostics for first few trades
-                    if len(results['trades']) <= 3:  # Only log first 3 trades
-                        self.logger.info(f"TRADE DIAGNOSTICS - Trade {len(results['trades'])}:")
-                        self.logger.info(f"  Position Size: ${position_size_dollars:,.2f} ({position_size_pct*100:.1f}% of capital)")
-                        self.logger.info(f"  Asset1 Price: ${asset1_price:.2f}, Asset2 Price: ${asset2_price:.2f}")
-                        self.logger.info(f"  Asset1 Shares: {asset1_shares:.2f}, Asset2 Shares: {asset2_shares:.2f}")
-                        self.logger.info(f"  Final Shares: {shares:.2f}")
-                        self.logger.info(f"  Spread Change: ${current_spread - entry_price:.4f}")
-                        self.logger.info(f"  Expected PnL: ${position * shares * (current_spread - entry_price):.2f}")
-                    
-                    # Calculate PnL with proper position sizing
-                    pnl = position * shares * (current_spread - entry_price)
+                    pnl = position * current_shares * (current_spread - entry_price)
                     results['pnl'].iloc[i] = pnl
                     results['equity'].iloc[i] = results['equity'].iloc[i-1] + pnl
                 else:
