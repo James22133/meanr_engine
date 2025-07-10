@@ -193,6 +193,7 @@ def main():
             logger.error("Failed to load data")
             return
         spy_series = data['SPY'] if 'SPY' in data.columns else None
+        spy_returns = spy_series.pct_change() if spy_series is not None else None
         
         # Detect market regimes
         logger.info("Detecting market regimes...")
@@ -293,7 +294,7 @@ def main():
                     
                     for date in signals.index:
                         if date in spread.index:
-                            should_trade, regime_info = regime_filter.should_trade(spread, date)
+                            should_trade, regime_info = regime_filter.should_trade(spread, date, spy_returns)
                             regime_info_list.append(regime_info)
                             
                             if not should_trade:

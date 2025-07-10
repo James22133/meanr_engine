@@ -12,7 +12,7 @@ A comprehensive, regime-aware pairs trading strategy with advanced performance a
 - **Regime-aware trading** with VIX, trend, and Sharpe ratio filters
 - **Enhanced pair selection** using cointegration, Hurst exponent, and volatility analysis
 - **Behavioral execution** with late-day entry filters
-- **Adaptive thresholds** that scale with market conditions
+- **Adaptive thresholds** that scale with pair-specific volatility
 - **Walk-forward validation** for robust parameter optimization
 
 ### Performance Analysis & Reporting
@@ -27,7 +27,7 @@ A comprehensive, regime-aware pairs trading strategy with advanced performance a
 - **Dynamic Spread Modeling**: Kalman filtering for adaptive hedge ratios and spread estimation
 - **Regime Detection**: Hidden Markov Models (HMM) for market regime identification and adaptive strategy parameters
 - **Risk Management**: Volatility targeting, position sizing, and comprehensive risk controls
-- **Behavioral Execution**: Trades are filtered to the late-day window to mimic retail execution
+- **Behavioral Execution**: Trades are filtered to the late-day window to mimic retail execution (from 15:30 to market close)
 - **Pair Health Logging**: Daily ADF and Hurst metrics are exported for monitoring
 
 - **Stress Filters**: Signal generation halts when VIX spikes or market returns crash

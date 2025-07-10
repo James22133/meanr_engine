@@ -1,7 +1,5 @@
-#Conflicts removed iknhsf-codex/expand-pair-universe-for-alpha-maximization
 
 import pandas as pd
-#Conflicts removed main
 from core.backtest_runner import BacktestRunner
 
 class DummyBacktestCfg:
@@ -18,7 +16,6 @@ class DummyConfig:
 
 def test_calculate_trade_pnl_with_costs():
     runner = BacktestRunner(DummyConfig())
-#Conflicts removed iknhsf-codex/expand-pair-universe-for-alpha-maximization
     gross, cost, net = runner._calculate_trade_pnl(1, 10.0, 12.0, shares=50.0)
 
     expected_gross = 50.0 * (12.0 - 10.0)
@@ -39,4 +36,3 @@ def test_calculate_trade_pnl_with_costs():
     expected = 1 * shares * (12.0 - 10.0) - expected_cost
 
     assert abs(pnl - expected) < 1e-6
-#Conflicts removed main
