@@ -118,9 +118,19 @@ class VectorBTBacktest:
             invalid_coint = rolling_adf > 0.05
             entries[invalid_coint] = 0
             
-            # Generate exit signals - vectorbt expects True for exit, False for no exit
+            # Generate exit signals - FIXED: Only exit when there's an active position
             exits = pd.Series(False, index=price1.index)
-            exits[(z_score >= -exit_threshold) & (z_score <= exit_threshold)] = True
+            current_position = 0
+            
+            for i, (date, entry_signal) in enumerate(entries.items()):
+                if entry_signal != 0:
+                    # New entry signal
+                    current_position = entry_signal
+                elif current_position != 0:
+                    # Check if we should exit based on z-score returning to neutral
+                    if abs(z_score.loc[date]) <= exit_threshold:
+                        exits.loc[date] = True
+                        current_position = 0
             
             # Debug logging
             long_signals = (entries == 1).sum()
@@ -177,7 +187,9 @@ class VectorBTBacktest:
     ) -> pd.DataFrame:
         """Calculate position sizes per trade based on volatility and config."""
         try:
-            base_size = 1.0 / max(self.config.max_concurrent_positions, 1)
+            # Calculate position size in dollars instead of portfolio fraction
+            position_size_pct = 0.2  # 20% of capital per trade
+            position_size_dollars = self.config.initial_capital * position_size_pct
 
             spread = price1 - price2
             volatility = spread.pct_change().rolling(vol_lookback).std()
@@ -187,12 +199,30 @@ class VectorBTBacktest:
             else:
                 vol_factor = (median_vol / volatility).clip(0.5, 2.0).fillna(1.0)
 
-            size_series = base_size * vol_factor * scaled_entries.abs()
-            size_series = size_series.clip(upper=1.0)
-
-            size_df = pd.DataFrame({"asset1": size_series, "asset2": size_series})
+            # Calculate actual dollar position sizes
+            dollar_size_series = position_size_dollars * vol_factor * scaled_entries.abs()
+            
+            # Convert dollar amounts to position sizes for each asset
+            # For pairs trading, we need to calculate how many shares of each asset
+            # we can buy with half the position size
+            capital_per_leg = dollar_size_series / 2
+            
+            # Calculate shares for each asset
+            asset1_shares = capital_per_leg / price1
+            asset2_shares = capital_per_leg / price2
+            
+            # Use the minimum shares to ensure we can afford both legs
+            shares = pd.concat([asset1_shares, asset2_shares], axis=1).min(axis=1)
+            
+            # Create size dataframe with actual share quantities
+            size_df = pd.DataFrame({
+                "asset1": shares * np.sign(scaled_entries), 
+                "asset2": shares * np.sign(scaled_entries)
+            })
+            
             size_df = size_df.reindex(price1.index).fillna(0.0)
             return size_df
+            
         except Exception as e:
             self.logger.error(f"Error calculating position size: {e}")
             return pd.DataFrame(0.0, index=price1.index, columns=["asset1", "asset2"])
@@ -261,14 +291,6 @@ class VectorBTBacktest:
         adjusted = returns.copy()
         adjusted[stress_mask] = adjusted[stress_mask] / self.config.execution_penalty_factor
         return adjusted
-#conflict resolved here 
-    def execute_signals(self, returns: pd.Series) -> pd.Series:
-        """Apply execution timing penalty if enabled."""
-        if self.config.execution_timing:
-            self.logger.info("Applying execution timing penalty factor")
-            return returns / self.config.execution_penalty_factor
-        return returns
-#conflict resolved here  main
     
     def run_vectorized_backtest(
         self,
@@ -313,10 +335,21 @@ class VectorBTBacktest:
             else:
                 scaled_entries = entries
 
-            entry_signals = pd.DataFrame({"asset1": np.sign(scaled_entries), "asset2": np.sign(scaled_entries)})
-            exit_signals = pd.DataFrame({"asset1": exits, "asset2": exits})
-
+            # Calculate position sizes as actual share quantities
             size_df = self._calculate_position_size_df(price1, price2, scaled_entries)
+            
+            # Create orders from signals and sizes
+            orders = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+            
+            # For each asset, create buy/sell orders based on signals and sizes
+            for col in prices.columns:
+                # Long positions (buy)
+                long_mask = (scaled_entries > 0) & (size_df[col] > 0)
+                orders.loc[long_mask, col] = size_df.loc[long_mask, col]
+                
+                # Short positions (sell)
+                short_mask = (scaled_entries < 0) & (size_df[col] > 0)
+                orders.loc[short_mask, col] = -size_df.loc[short_mask, col]
 
             # Dynamic slippage adjustment based on dollar volume if provided
             dyn_slippage = self.config.slippage
@@ -328,19 +361,13 @@ class VectorBTBacktest:
                     factor = min(1.5, max(0.5, 5_000_000 / avg_dv))
                     dyn_slippage = self.config.slippage * factor
 
-            portfolio = vbt.Portfolio.from_signals(
+            portfolio = vbt.Portfolio.from_orders(
                 close=prices,
-                entries=entry_signals,
-                exits=exit_signals,
-                size=size_df,
-                direction="both",
+                size=orders,
                 init_cash=self.config.initial_capital,
                 fees=self.config.fees,
                 slippage=dyn_slippage,
-                freq="1D",
-                accumulate=False,
-                upon_long_conflict="ignore",
-                upon_short_conflict="ignore"
+                freq="1D"
             )
             
             # Extract detailed trade information
@@ -361,9 +388,6 @@ class VectorBTBacktest:
             vix = vix_series.reindex(portfolio.returns().index) if vix_series is not None else None
             spy_ret = spy_series.pct_change(5).reindex(portfolio.returns().index) if spy_series is not None else None
             adj_returns = self.execute_signals(portfolio.returns(), vix, spy_ret)
-#conflict resolved here 
-            adj_returns = self.execute_signals(portfolio.returns())
-#conflict resolved here  main
             results = {
                 'portfolio': portfolio,
                 'equity_curve': self.config.initial_capital * (1 + adj_returns).cumprod(),
@@ -463,9 +487,6 @@ class VectorBTBacktest:
                     entry_regime = regime_series.loc[entry_idx] if regime_series is not None else 0
                     exit_regime = regime_series.loc[exit_idx] if regime_series is not None else 0
                     
-                    # Calculate holding period
-                    holding_period = (exit_idx - entry_idx).days
-                    
                     # Determine trade direction - check multiple possible column names
                     direction = 'unknown'
                     direction_col = None
@@ -486,15 +507,42 @@ class VectorBTBacktest:
                     exit_spread = exit_price1 - exit_price2
                     spread_change = exit_spread - entry_spread
                     
-                    # Get PnL value with proper handling
-                    pnl_value = trade[pnl_col]
+                    # Calculate holding period
+                    holding_period = (exit_idx - entry_idx).days if hasattr(exit_idx - entry_idx, 'days') else 1
+                    
+                    # Calculate actual PnL based on position size and share quantities
+                    # Get the size information from the trade record
+                    size = trade.get('Size', 1.0)
+                    if pd.isna(size) or size == 0:
+                        size = 1.0
+                    
+                    # Calculate actual dollar PnL
+                    # For pairs trading: PnL = position * shares * spread_change
+                    # where position is 1 for long, -1 for short
+                    position = 1 if direction == 'long' else -1
+                    
+                    # Calculate shares from the size (which should now be actual share quantity)
+                    shares = abs(size)
+                    
+                    # Calculate gross PnL
+                    gross_pnl = position * shares * spread_change
+                    
+                    # Get fees and slippage
+                    fees = trade.get('Entry Fees', 0.0) + trade.get('Exit Fees', 0.0)
+                    slippage = trade.get('Slippage', 0.0)
+                    
+                    # Calculate net PnL
+                    net_pnl = gross_pnl - fees - slippage
+                    
+                    # Get PnL value with proper handling - use our calculated net PnL
+                    pnl_value = net_pnl
                     if pd.isna(pnl_value):
                         pnl_value = 0.0
                     
                     # Get other trade details with safe defaults
-                    size = trade.get('Size', 1.0)
-                    fees = trade.get('Entry Fees', 0.0) + trade.get('Exit Fees', 0.0)
-                    slippage = trade.get('Slippage', 0.0)
+                    # size = trade.get('Size', 1.0) # This line is now redundant as size is calculated above
+                    # fees = trade.get('Entry Fees', 0.0) + trade.get('Exit Fees', 0.0) # This line is now redundant as fees is calculated above
+                    # slippage = trade.get('Slippage', 0.0) # This line is now redundant as slippage is calculated above
                     
                     detailed_trade = {
                         'pair': f"{pair_label[0]}-{pair_label[1]}",
